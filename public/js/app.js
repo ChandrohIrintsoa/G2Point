@@ -1,9 +1,9 @@
-const $=id=>document.getElementById(id),NAMES=['Rouge','Noir','Vert','Orange'];
+const $=id=>document.getElementById(id),NAMES=['Rouge','Cyan','Vert','Ambre'];
 const E=window.G2Engine;
-let W=17,H=23,N=2,TM=false,mode='',moves=[],me=-1,code='',ref=null,unsub=null,unsubChat=null,db=null,auth=null,cid='',authReady=false,ended=false,ready=true,filled=0,hover=null,S=null,cs=20,gameData=null,chatUnread=0,firstChatSnapshot=true,raf=0,COL=null,dirty=true,LC=null,fx=null,wasOver=false,rematchCode='',ai=false,daily='',aiTimer=0,chatRows=[],lastSend=0,kb=[0,0],snd=(()=>{try{return localStorage.getItem('g2p.snd')!=='0'}catch(e){return true}})();
+let W=17,H=23,N=2,TM=false,mode='',moves=[],me=-1,code='',ref=null,unsub=null,unsubChat=null,db=null,auth=null,cid='',authReady=false,ended=false,ready=true,filled=0,hover=null,S=null,cs=20,gameData=null,chatUnread=0,firstChatSnapshot=true,raf=0,COL=null,dirty=true,LC=null,fx=null,wasOver=false,rematchCode='',endSent='',aiP=null,ai=false,daily='',aiTimer=0,chatRows=[],lastSend=0,kb=[0,0],snd=(()=>{try{return localStorage.getItem('g2p.snd')!=='0'}catch(e){return true}})();
 const getNickname=()=>{let v='';try{v=$('nickname').value.trim()||localStorage.getItem('g2p.nickname')||''}catch(e){v=$('nickname').value.trim()}return (v.replace(/[<>\u0000-\u001f]/g,'').slice(0,20)||'Joueur').trim()};
 const K=()=>TM?2:N,tmOf=p=>TM?p%2:p;
-const turn=()=>S?S.cur:0,over=()=>ended||moves.length>=W*H;
+const turn=()=>S?S.cur:0,over=()=>ended||(S?S.free<=0:moves.length>=W*H);
 const can=()=>!!S&&!over()&&ready&&((mode=='local'&&!(ai&&S.cur==1))||(mode=='online'&&me==turn()));
 
 /* Le moteur de règles vit dans engine.js (testé avec `npm test`). */
@@ -34,18 +34,19 @@ const vib=p=>{try{navigator.vibrate&&navigator.vibrate(p)}catch(e){}};
 const startFx=()=>{if(!RM)fx={t:performance.now(),team:S.capT,cells:S.cap}};
 
 /* Rendu : couleurs en cache, calque statique (grille, boucles, points) mis en cache, survol dessiné par-dessus */
-const COLN=['--line','--c0','--c1','--c2','--c3','--tx'];
+const COLN=['--line','--c0','--c1','--c2','--c3','--tx','--paper'];
 const col=n=>(COL||(COL=Object.fromEntries(COLN.map(k=>[k,getComputedStyle(document.documentElement).getPropertyValue(k).trim()]))))[n];
 function layer(x,w,h){
+  x.fillStyle=col('--paper');x.fillRect(0,0,w,h);
   x.strokeStyle=col('--line');x.lineWidth=1;x.beginPath();
   for(let i=1;i<=W;i++){x.moveTo(i*cs,0);x.lineTo(i*cs,h)}
   for(let j=1;j<=H;j++){x.moveTo(0,j*cs);x.lineTo(w,j*cs)}
   x.stroke();
-  const {o,d}=S,P=(a,b)=>[(a+1)*cs,(b+1)*cs];
+  const {o,d,blk}=S,P=(a,b)=>[(a+1)*cs,(b+1)*cs];
   x.lineCap='round';x.lineWidth=cs*.13;
-  for(const {t,c} of S.loops){
-    x.fillStyle=col('--c'+t);x.globalAlpha=.13;c.cells.forEach(([a,b])=>x.fillRect(a*cs+cs/2,b*cs+cs/2,cs,cs));x.globalAlpha=1;
-    x.strokeStyle=col('--c'+t);
+  for(const {t,c} of S.loops){ /* territoires : remplissage néon + contour lumineux */
+    x.fillStyle=col('--c'+t);x.globalAlpha=.16;c.cells.forEach(([a,b])=>x.fillRect(a*cs+cs/2,b*cs+cs/2,cs,cs));x.globalAlpha=1;
+    x.strokeStyle=col('--c'+t);x.shadowColor=col('--c'+t);x.shadowBlur=cs*.45;
     const live=k=>{const a=k%W,b=(k-a)/W;return o[b][a]==t+1&&!d[b][a]};
     for(const k of c.bd){
       if(!live(k))continue;const a=k%W,b=(k-a)/W;
@@ -56,12 +57,19 @@ function layer(x,w,h){
         const [x1,y1]=P(a,b),[x2,y2]=P(u,v);x.beginPath();x.moveTo(x1,y1);x.lineTo(x2,y2);x.stroke();
       }
     }
+    x.shadowBlur=0;
   }
-  const R=cs*.3;
+  const R=cs*.3,q=cs*.13;
+  x.strokeStyle=col('--tx');x.lineWidth=1;x.globalAlpha=.4; /* cases verrouillées (territoire fermé) */
+  for(let b=0;b<H;b++)for(let a=0;a<W;a++)if(blk[b][a]&&!o[b][a]){const [px,py]=P(a,b);x.strokeRect(px-q,py-q,2*q,2*q);x.beginPath();x.moveTo(px-q,py-q);x.lineTo(px+q,py+q);x.stroke()}
+  x.globalAlpha=1;
   for(let b=0;b<H;b++)for(let a=0;a<W;a++){
-    const p=o[b][a];if(!p)continue;const [px,py]=P(a,b);
-    x.globalAlpha=d[b][a]?.4:1;x.fillStyle=col('--c'+(p-1));x.beginPath();x.arc(px,py,R,0,7);x.fill();x.globalAlpha=1;
-    if(d[b][a]){x.strokeStyle=col('--tx');x.lineWidth=1.5;x.beginPath();x.moveTo(px-R,py-R);x.lineTo(px+R,py+R);x.moveTo(px+R,py-R);x.lineTo(px-R,py+R);x.stroke()}
+    const p=o[b][a];if(!p)continue;const [px,py]=P(a,b),dead=d[b][a],cc=col('--c'+(p-1));
+    x.globalAlpha=dead?.4:1;x.fillStyle=cc;x.shadowColor=cc;x.shadowBlur=dead?0:cs*.7;
+    x.beginPath();x.arc(px,py,R,0,7);x.fill();x.shadowBlur=0;
+    if(!dead){x.fillStyle='rgba(255,255,255,.7)';x.beginPath();x.arc(px,py,R*.35,0,7);x.fill()}
+    x.globalAlpha=1;
+    if(dead){x.strokeStyle=col('--tx');x.lineWidth=1.5;x.beginPath();x.moveTo(px-R,py-R);x.lineTo(px+R,py+R);x.moveTo(px+R,py-R);x.lineTo(px-R,py+R);x.stroke()}
   }
 }
 function paint(){
@@ -79,7 +87,7 @@ function paint(){
   const R=cs*.3,P=(a,b)=>[(a+1)*cs,(b+1)*cs],{o}=S;
   const L=moves[S.n-1];
   if(L){const [px,py]=P(L[0],L[1]);x.strokeStyle=col('--tx');x.lineWidth=1.5;x.beginPath();x.arc(px,py,R+3,0,7);x.stroke()}
-  if(hover&&can()&&!o[hover[1]][hover[0]]){
+  if(hover&&can()&&!o[hover[1]][hover[0]]&&!S.blk[hover[1]][hover[0]]){
     const [px,py]=P(hover[0],hover[1]);x.globalAlpha=.55;x.fillStyle=col('--c'+tmOf(turn()));
     x.beginPath();x.arc(px,py,R,0,7);x.fill();x.globalAlpha=1;
   }
@@ -93,6 +101,53 @@ function paint(){
 }
 const draw=()=>{raf||(raf=requestAnimationFrame(()=>{raf=0;paint()}))}; /* au plus un rendu par image */
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{COL=null;dirty=true;draw()});
+
+/* IA évolutive : mémoire de motifs (copie les techniques vues, y compris celles de l'adversaire)
+   + poids d'évaluation optimisés par essais successifs (champion / challenger) */
+const AIDEF=()=>({w:E.DEFAULT_W.slice(),c:null,st:{g:0,w:0},book:{},games:0});
+function loadAI(){try{const a=JSON.parse(localStorage.getItem('g2p.ai')||'null');return a&&a.w&&a.book?a:AIDEF()}catch(e){return AIDEF()}}
+function saveAI(a){
+  const ks=Object.keys(a.book);
+  if(ks.length>1500){ks.sort((p,q)=>a.book[q][0]-a.book[p][0]);const nb={};ks.slice(0,1200).forEach(k=>nb[k]=a.book[k]);a.book=nb}
+  try{localStorage.setItem('g2p.ai',JSON.stringify(a))}catch(e){}
+  renderAIInfo();
+}
+function renderAIInfo(){const a=loadAI();$('aiInfo').textContent='IA : '+a.games+' parties apprises · '+Object.keys(a.book).length+' motifs · '+a.st.w+' victoires sur '+a.st.g+(a.c?' · variante en test':'')}
+/* Le défi du jour utilise toujours l'IA de base (même adversaire pour tout le monde). */
+function aiPick(){aiP=daily?null:(()=>{const a=loadAI();return{w:a.c||a.w,book:a.book,ch:!!a.c}})()}
+function learnFromGame(win,r){
+  if(N!=2||TM||moves.length<6)return;
+  const a=loadAI();E.learn(a.book,moves,W,H,N,TM,win);a.games++;
+  if(ai&&!daily&&aiP&&mode=='local'){ /* r = résultat du joueur humain */
+    const aiOk=r!='win';a.st.g++;a.st.w+=r=='loss'?1:0;
+    if(aiP.ch){if(aiOk)a.w=a.c;a.c=null}          /* le challenger ne perd pas : il devient champion */
+    if(!aiOk&&!a.c)a.c=E.mutate(a.w,Math.random);  /* l'IA a perdu : elle teste une variante */
+  }
+  saveAI(a);
+}
+async function selfPlay(PA,PB){
+  const s=E.create(11,15,2,false),mv=[];
+  while(s.free>0&&mv.length<90){
+    const m=E.aiMove(s,Math.random,s.cur?PB:PA);if(!m)break;
+    E.apply(s,m);mv.push(m);if(mv.length%4==0)await new Promise(r=>setTimeout(r));
+  }
+  return{sc:s.sc,moves:mv};
+}
+async function trainAI(){
+  const b=$('bTrain');b.disabled=true;const a=loadAI();let n=0;
+  for(let it=0;it<4;it++){
+    const ch=E.mutate(a.w,Math.random);let d=0;
+    for(const side of[0,1]){
+      $('aiInfo').textContent='Entraînement… partie '+(++n)+'/8';
+      const r=await selfPlay(side?{w:a.w,book:a.book}:{w:ch,book:a.book},side?{w:ch,book:a.book}:{w:a.w,book:a.book});
+      d+=side?r.sc[1]-r.sc[0]:r.sc[0]-r.sc[1];
+      E.learn(a.book,r.moves,11,15,2,false,r.sc[0]>r.sc[1]?[0]:r.sc[1]>r.sc[0]?[1]:[]);a.games++;
+    }
+    if(d>0)a.w=ch; /* la variante qui bat le champion le remplace */
+  }
+  saveAI(a);b.disabled=false;
+}
+$('bTrain').onclick=trainAI;
 
 /* Libellés, résultat, historique, partage */
 const label=i=>ai&&mode=='local'&&i==1?'IA':NAMES[i];
@@ -108,7 +163,7 @@ function record(){
   const r=mine<0?'':w.includes(mine)?(w.length>1?'draw':'win'):'loss';
   const h=loadHist();h.unshift({t:Date.now(),k:daily?'daily':ai?'ai':mode,w:W,h:H,sc:S.sc.slice(),r,d:daily||undefined});
   try{localStorage.setItem('g2p.hist',JSON.stringify(h.slice(0,30)))}catch(e){}
-  renderHist();
+  learnFromGame(w,r);renderHist();
 }
 function renderHist(){
   const h=loadHist(),box=$('hist');if(!h.length)return;
@@ -149,7 +204,7 @@ function aiTurn(){
   if(!ok())return;
   aiTimer=setTimeout(()=>{
     if(!ok())return;
-    moves=[...moves,E.aiMove(S,E.rng((daily?seedOf(daily):Date.now())+moves.length))];upd();saveLocal();aiTurn();
+    const m=E.aiMove(S,E.rng((daily?seedOf(daily):Date.now())+moves.length),aiP);if(!m)return;moves=[...moves,m];upd();saveLocal();aiTurn();
   },380);
 }
 
@@ -183,6 +238,7 @@ function upd(){
   if(fresh){if(S.cap.length){startFx();sfx('cap');vib([30,40,30])}else{sfx('place');if(mode=='online'&&me==p)vib(40)}}
   if(o&&!wasOver){sfx('win');clearSave();record()}
   wasOver=o;
+  if(o&&mode=='online'&&me>=0&&gameData&&!gameData.ended&&endSent!==code){endSent=code;ref.update({ended:true}).catch(()=>{})} /* plateau plein (territoires compris) : clôture pour permettre la revanche */
   draw();
 }
 
@@ -217,7 +273,7 @@ function renderOnlinePanel(v){
   for(let i=0;i<v.n;i++){
     const uid=v['s'+i]||'',line=document.createElement('div');line.className='roster-player'+(uid?' filled':'');
     const name=document.createElement('span');name.textContent=(uid?playerName(v,i):'Place '+(i+1));
-    const state=document.createElement('span');state.className='seat-state';state.textContent=uid?(uid===cid?'Vous':(v.tm?'Équipe '+(i%2===0?'Rouge':'Noir'):'Connecté')):'En attente';
+    const state=document.createElement('span');state.className='seat-state';state.textContent=uid?(uid===cid?'Vous':(v.tm?'Équipe '+NAMES[i%2]:'Connecté')):'En attente';
     line.append(name,state);roster.append(line);
   }
   const badge=$('chatBadge');badge.hidden=chatUnread<1;badge.textContent=chatUnread>99?'99+':String(chatUnread);
@@ -260,6 +316,7 @@ async function sendChatMessage(text){
 const expiry=()=>firebase.firestore.Timestamp.fromMillis(Date.now()+7*864e5); /* purge via la politique TTL Firestore */
 async function place(pt){
   if(!pt||!can()||S.o[pt[1]][pt[0]])return;
+  if(S.blk[pt[1]][pt[0]]){note('Territoire fermé : cette case est inaccessible.');return}
   note('');
   moves=[...moves,pt];upd(); /* coup optimiste : visible tout de suite, sans attendre le serveur */
   if(mode==='local'){saveLocal();aiTurn();return}
@@ -284,7 +341,7 @@ const readOpts=()=>{
 $('np').onchange=()=>{$('modeHint').textContent=$('np').value==='team'?'Deux équipes alternent leurs tours : joueurs 1 et 3 contre joueurs 2 et 4.':$('np').value==='ai'?'Solo : vous jouez Rouge contre l’ordinateur.':$('np').value==='2'?'Duel : deux joueurs se relaient.':'Chacun pour soi : chaque joueur a son propre score.'};
 $('nickname').onchange=()=>{try{localStorage.setItem('g2p.nickname',getNickname())}catch(e){}};
 try{$('nickname').value=localStorage.getItem('g2p.nickname')||''}catch(e){}
-$('bLocal').onclick=()=>{readOpts();mode='local';ready=true;me=-1;code='';gameData=null;renderOnlinePanel({n:N});show(true);upd()};
+$('bLocal').onclick=()=>{readOpts();aiPick();mode='local';ready=true;me=-1;code='';gameData=null;renderOnlinePanel({n:N});show(true);upd()};
 async function createGame(same){
   if(!db||!authReady||!cid){note('La connexion en ligne n’est pas prête. Vérifiez Firebase et réessayez.');return false}
   if(!same)readOpts();
@@ -326,15 +383,15 @@ $('bJoin').onclick=()=>joinGame($('code').value);
 $('bResume').onclick=()=>{
   const sv=loadSave();if(!sv)return;
   if(sv.m=='online'){joinGame(sv.c).then(ok=>{if(!ok)clearSave()});return}
-  W=sv.w;H=sv.h;N=sv.n;TM=!!sv.tm;ai=!!sv.ai;daily=sv.d||'';moves=sv.mv.map(k=>[k%W,(k/W)|0]);S=null;ended=false;wasOver=false;mode='local';ready=true;me=-1;code='';gameData=null;
+  W=sv.w;H=sv.h;N=sv.n;TM=!!sv.tm;ai=!!sv.ai;daily=sv.d||'';aiPick();moves=sv.mv.map(k=>[k%W,(k/W)|0]);S=null;ended=false;wasOver=false;mode='local';ready=true;me=-1;code='';gameData=null;
   renderOnlinePanel({n:N});show(true);if(daily)note('Défi du jour — '+daily);upd();aiTurn();
 };
 $('bDaily').onclick=()=>{
-  ai=true;daily=todayStr();W=11;H=15;N=2;TM=false;moves=dailyOpening(daily);S=null;ended=false;wasOver=false;mode='local';ready=true;me=-1;code='';gameData=null;
+  ai=true;daily=todayStr();aiPick();W=11;H=15;N=2;TM=false;moves=dailyOpening(daily);S=null;ended=false;wasOver=false;mode='local';ready=true;me=-1;code='';gameData=null;
   renderOnlinePanel({n:N});show(true);note('Défi du jour — '+daily);upd();
 };
 $('rematch').onclick=async()=>{
-  if(mode=='local'){moves=daily?dailyOpening(daily):[];S=null;ended=false;wasOver=false;upd();aiTurn();return}
+  if(mode=='local'){aiPick();moves=daily?dailyOpening(daily):[];S=null;ended=false;wasOver=false;upd();aiTurn();return}
   if(rematchCode){joinGame(rematchCode);return}
   const old=ref;if(await createGame(true)&&old)old.update({next:code}).catch(()=>{}); /* invite les autres joueurs */
 };
@@ -386,5 +443,5 @@ cv.onkeydown=e=>{
   if(dir){e.preventDefault();const c=hover||kb;hover=kb=[Math.max(0,Math.min(W-1,c[0]+dir[0])),Math.max(0,Math.min(H-1,c[1]+dir[1]))];draw()}
   else if(e.key==='Enter'||e.key===' '){e.preventDefault();place(hover||kb)}
 };
-refreshResume();renderHist();
+refreshResume();renderHist();renderAIInfo();
 if('serviceWorker' in navigator&&(location.protocol==='https:'||location.hostname==='localhost'))navigator.serviceWorker.register('sw.js').catch(()=>{});
