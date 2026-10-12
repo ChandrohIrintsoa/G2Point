@@ -64,3 +64,11 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .chat-form button{padding-inline:14px}
 @media(min-width:560px){main{padding-top:20px}}
 
+
+/* Améliorations */
+canvas:focus-visible{outline:3px solid var(--c0);outline-offset:2px}
+.acts{flex-wrap:wrap}.acts button{flex:1 1 40%}
+.chip{transition:border-color .2s,transform .2s}.chip.on{transform:translateY(-2px)}
+@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+.hist{font-size:14px;margin-top:8px}.hist p{margin:0 0 6px}.hist ul{list-style:none;padding:0;margin:0}.hist li{display:flex;justify-content:space-between;gap:8px;margin:0;padding:4px 0;border-bottom:1px solid var(--bd)}

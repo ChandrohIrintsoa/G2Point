@@ -6,6 +6,10 @@
 <meta name="theme-color" content="#f5f3f8">
 <meta name="description" content="Jeu de points à 2, 3 ou 4 joueurs, en local ou en ligne avec discussion en direct.">
 <title>G2Point — Jeu de points</title>
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -20,6 +24,7 @@
     <label>Mode de jeu
       <select id="np">
         <option value="2">Duel — 1 contre 1</option>
+        <option value="ai">Solo — contre l’IA</option>
         <option value="3">3 joueurs — chacun pour soi</option>
         <option value="4">4 joueurs — chacun pour soi</option>
         <option value="team">Équipes — 2 contre 2</option>
@@ -31,7 +36,9 @@
     </label>
   </div>
   <div class="stack">
+    <button id="bResume" type="button" hidden></button>
     <button class="pri" id="bLocal">Jouer sur cet appareil</button>
+    <button id="bDaily" type="button">Défi du jour (contre l’IA, terrain 11 × 15)</button>
     <div id="online" class="stack" style="margin:0">
       <button id="bNew" type="button">Créer une partie en ligne</button>
       <div class="row"><input type="text" id="code" maxlength="5" placeholder="Code" aria-label="Code de la partie" autocomplete="off" autocapitalize="characters"><button id="bJoin" type="button">Rejoindre</button></div>
@@ -42,6 +49,10 @@
   </div>
   <div class="note" id="mnote" role="status" aria-live="polite"></div>
   <details>
+    <summary>Historique et statistiques</summary>
+    <div id="hist" class="hist"><p>Aucune partie terminée pour le moment.</p></div>
+  </details>
+  <details>
     <summary>Règles du jeu</summary>
     <ul>
       <li>Un seul point par tour, chacun son tour. Rouge commence.</li>
@@ -50,6 +61,8 @@
       <li>Chaque point capturé vaut 1 point et reçoit une croix.</li>
       <li>Piège : si vous posez un point dans une zone vide déjà entourée par l’adversaire, il est capturé, sauf s’il permet de capturer à son tour.</li>
       <li>À 3 ou 4 joueurs, chacun joue pour soi. En mode équipes, les joueurs 1 et 3 affrontent les joueurs 2 et 4.</li>
+      <li>Solo : vous jouez Rouge contre l’IA. Défi du jour : même ouverture et même IA pour tout le monde, résultat partageable. En ligne, si l’adversaire reste inactif plus de 2 minutes, vous pouvez déclarer son abandon.</li>
+      <li>Revanche, reprise de partie (locale ou en ligne), son et vibration (désactivables) et jeu au clavier (flèches + Entrée) sont disponibles.</li>
       <li>La partie s’arrête quand le terrain est plein ou lorsqu’un joueur termine la partie. Le score le plus élevé gagne.</li>
       <li>Le chat est disponible uniquement dans une partie en ligne. Choisissez un pseudo sans information personnelle sensible.</li>
     </ul>
@@ -58,7 +71,7 @@
 
 <section id="game" hidden>
   <div id="bar"></div>
-  <canvas id="cv" aria-label="Terrain de jeu"></canvas>
+  <canvas id="cv" tabindex="0" aria-label="Terrain de jeu. Flèches pour déplacer le curseur, Entrée pour poser un point"></canvas>
   <div id="msg" role="status" aria-live="polite"></div>
   <div class="note" id="gnote" role="status" aria-live="polite"></div>
   <section id="onlinePanel" class="online-panel" hidden aria-label="Salon de la partie">
@@ -66,7 +79,7 @@
     <div id="roster" class="roster" aria-label="Joueurs dans la partie"></div>
     <button id="chatOpen" type="button" class="chat-launch">Ouvrir la discussion <span id="chatBadge" class="chat-badge" hidden>0</span></button>
   </section>
-  <div class="acts"><button id="end">Terminer la partie</button><button id="back">Menu</button></div>
+  <div class="acts"><button id="rematch" class="pri" type="button" hidden>Revanche</button><button id="share" type="button" hidden>Partager le résultat</button><button id="forfeit" type="button" hidden>Déclarer l’abandon</button><button id="end">Terminer la partie</button><button id="snd" type="button">🔊 Son</button><button id="back">Menu</button></div>
 </section>
 </main>
 
@@ -84,10 +97,11 @@
   </div>
 </div>
 
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="js/firebase-config.js"></script>
-<script src="js/app.js"></script>
+<script defer src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script defer src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script defer src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script defer src="js/firebase-config.js"></script>
+<script defer src="js/engine.js"></script>
+<script defer src="js/app.js"></script>
 </body>
 </html>

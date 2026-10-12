@@ -18,15 +18,27 @@ service cloud.firestore {
       return value is string && value.size() >= 1 && value.size() <= 20;
     }
 
+    // Date d'expiration (purge via la politique TTL Firestore) : entre maintenant et 8 jours.
+    function validExpiry() {
+      return request.resource.data.expireAt is timestamp
+        && request.resource.data.expireAt > request.time
+        && request.resource.data.expireAt <= request.time + duration.value(8, 'd');
+    }
+
+    // Tous les sièges de la partie sont occupés.
+    function allSeated(d) {
+      return (d.n < 2 || d.s1 != '') && (d.n < 3 || d.s2 != '') && (d.n < 4 || d.s3 != '');
+    }
+
     function validNewGame() {
       return signedIn()
         && request.resource.data.keys().hasAll([
           'n', 'tm', 'w', 'h', 's0', 's1', 's2', 's3',
-          'name0', 'name1', 'name2', 'name3', 'moves', 'ended', 'createdAt'
+          'name0', 'name1', 'name2', 'name3', 'moves', 'cur', 'ended', 'createdAt', 'expireAt'
         ])
         && request.resource.data.keys().hasOnly([
           'n', 'tm', 'w', 'h', 's0', 's1', 's2', 's3',
-          'name0', 'name1', 'name2', 'name3', 'moves', 'ended', 'createdAt'
+          'name0', 'name1', 'name2', 'name3', 'moves', 'cur', 'ended', 'createdAt', 'expireAt'
         ])
         && request.resource.data.n in [2, 3, 4]
         && request.resource.data.tm is bool
@@ -44,7 +56,9 @@ service cloud.firestore {
         && request.resource.data.moves is list
         && request.resource.data.moves.size() == 0
         && request.resource.data.ended == false
-        && request.resource.data.createdAt == request.time;
+        && request.resource.data.cur == 0
+        && request.resource.data.createdAt == request.time
+        && validExpiry();
     }
 
     function validSeatClaim(seat, name, minimumPlayers) {
@@ -62,9 +76,19 @@ service cloud.firestore {
     function validMoveAppend() {
       let oldMoves = resource.data.moves;
       let newMoves = request.resource.data.moves;
+      let oc = resource.data.get('cur', 0);
+      let nc = request.resource.data.get('cur', 0);
       return isPlayer(resource.data)
+        && allSeated(resource.data)
+        // Validation du tour : seul le joueur dont c'est le tour peut jouer.
+        // Le tour suivant est soit le même joueur (bonus de capture), soit le suivant.
+        // Le calcul exact des captures reste côté client (voir README).
+        && [resource.data.s0, resource.data.s1, resource.data.s2, resource.data.s3][oc] == request.auth.uid
+        && nc is int
+        && (nc == oc || nc == (oc + 1) % resource.data.n)
         && resource.data.ended == false
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['moves'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['moves', 'cur', 'lastAt'])
+        && request.resource.data.lastAt == request.time
         && newMoves is list
         && newMoves.size() == oldMoves.size() + 1
         && newMoves.size() <= 713
@@ -82,17 +106,44 @@ service cloud.firestore {
         && request.resource.data.ended == true;
     }
 
+    // Abandon : un joueur peut clore la partie si le joueur dont c'est le tour est inactif depuis plus de 2 minutes.
+    function validForfeit() {
+      let c = resource.data.get('cur', 0);
+      let last = resource.data.get('lastAt', resource.data.createdAt);
+      return isPlayer(resource.data)
+        && resource.data.ended == false
+        && allSeated(resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ended', 'forfeit'])
+        && request.resource.data.ended == true
+        && request.resource.data.forfeit == c
+        && [resource.data.s0, resource.data.s1, resource.data.s2, resource.data.s3][c] != request.auth.uid
+        && request.time > last + duration.value(2, 'm');
+    }
+
+    // Revanche : un joueur publie le code de la nouvelle partie une fois la partie terminée.
+    function validRematch() {
+      return isPlayer(resource.data)
+        && (resource.data.ended == true || resource.data.moves.size() >= resource.data.w * resource.data.h)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['next'])
+        && resource.data.get('next', '') == ''
+        && request.resource.data.next is string
+        && request.resource.data.next.matches('^[A-HJ-NP-Z2-9]{5}$');
+    }
+
     match /games/{gameCode} {
-      // An authenticated client needs to read a game by its invitation code to join it.
-      // Only seated players may change game state, apart from claiming an empty seat.
-      allow read: if signedIn();
+      // Lecture par code uniquement (get) : impossible de lister ou d'énumérer les parties.
+      // Seuls les joueurs assis modifient l'état, hormis la prise d'un siège libre.
+      allow get: if signedIn();
+      allow list: if false;
       allow create: if gameCode.matches('^[A-HJ-NP-Z2-9]{5}$') && validNewGame();
       allow update: if signedIn() && (
         validSeatClaim('s1', 'name1', 2) ||
         validSeatClaim('s2', 'name2', 3) ||
         validSeatClaim('s3', 'name3', 4) ||
         validMoveAppend() ||
-        validEnd()
+        validEnd() ||
+        validForfeit() ||
+        validRematch()
       );
       allow delete: if false;
 
@@ -107,13 +158,14 @@ service cloud.firestore {
         allow create: if signedIn()
           && parentExists()
           && isPlayer(parentData())
-          && request.resource.data.keys().hasOnly(['uid', 'text', 'createdAt'])
-          && request.resource.data.keys().hasAll(['uid', 'text', 'createdAt'])
+          && request.resource.data.keys().hasOnly(['uid', 'text', 'createdAt', 'expireAt'])
+          && request.resource.data.keys().hasAll(['uid', 'text', 'createdAt', 'expireAt'])
           && request.resource.data.uid == request.auth.uid
           && request.resource.data.text is string
           && request.resource.data.text.size() >= 1
           && request.resource.data.text.size() <= 500
-          && request.resource.data.createdAt == request.time;
+          && request.resource.data.createdAt == request.time
+          && validExpiry();
         allow update, delete: if false;
       }
     }

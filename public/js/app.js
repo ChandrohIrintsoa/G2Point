@@ -1,60 +1,42 @@
 const $=id=>document.getElementById(id),NAMES=['Rouge','Noir','Vert','Orange'];
-const N4=[[1,0],[-1,0],[0,1],[0,-1]],N8=[...N4,[1,1],[1,-1],[-1,1],[-1,-1]];
-let W=17,H=23,N=2,TM=false,mode='',moves=[],me=-1,code='',ref=null,unsub=null,unsubChat=null,db=null,auth=null,cid='',authReady=false,ended=false,ready=true,filled=0,hover=null,S=null,cs=20,gameData=null,chatUnread=0,firstChatSnapshot=true;
+const E=window.G2Engine;
+let W=17,H=23,N=2,TM=false,mode='',moves=[],me=-1,code='',ref=null,unsub=null,unsubChat=null,db=null,auth=null,cid='',authReady=false,ended=false,ready=true,filled=0,hover=null,S=null,cs=20,gameData=null,chatUnread=0,firstChatSnapshot=true,raf=0,COL=null,dirty=true,LC=null,fx=null,wasOver=false,rematchCode='',ai=false,daily='',aiTimer=0,chatRows=[],lastSend=0,kb=[0,0],snd=(()=>{try{return localStorage.getItem('g2p.snd')!=='0'}catch(e){return true}})();
 const getNickname=()=>{let v='';try{v=$('nickname').value.trim()||localStorage.getItem('g2p.nickname')||''}catch(e){v=$('nickname').value.trim()}return (v.replace(/[<>\u0000-\u001f]/g,'').slice(0,20)||'Joueur').trim()};
-const K=()=>TM?2:N,tmOf=p=>TM?p%2:p,grid=v=>Array.from({length:H},()=>Array(W).fill(v));
+const K=()=>TM?2:N,tmOf=p=>TM?p%2:p;
 const turn=()=>S?S.cur:0,over=()=>ended||moves.length>=W*H;
-const can=()=>!!S&&!over()&&ready&&(mode=='local'||(mode=='online'&&me==turn()));
+const can=()=>!!S&&!over()&&ready&&((mode=='local'&&!(ai&&S.cur==1))||(mode=='online'&&me==turn()));
 
-/* Zones fermées par l'équipe t : composantes de cases non atteignables depuis le bord */
-function scan(s,t){
-  const {o,d}=s,wall=(a,b)=>o[b][a]==t+1&&!d[b][a],seen=grid(false),st=[];
-  const push=(a,b)=>{if(!seen[b][a]&&!wall(a,b)){seen[b][a]=true;st.push([a,b])}};
-  for(let a=0;a<W;a++){push(a,0);push(a,H-1)}
-  for(let b=0;b<H;b++){push(0,b);push(W-1,b)}
-  while(st.length){const [a,b]=st.pop();for(const [dx,dy] of N4){const u=a+dx,v=b+dy;if(u>=0&&v>=0&&u<W&&v<H)push(u,v)}}
-  const comps=[],vis=grid(false);
-  for(let b=0;b<H;b++)for(let a=0;a<W;a++){
-    if(seen[b][a]||wall(a,b)||vis[b][a])continue;
-    const cells=[],bd=new Set(),q=[[a,b]];vis[b][a]=true;
-    while(q.length){
-      const [i,j]=q.pop();cells.push([i,j]);
-      for(const [dx,dy] of N8){
-        const u=i+dx,v=j+dy;if(u<0||v<0||u>=W||v>=H)continue;
-        if(wall(u,v))bd.add(v*W+u);
-        else if(dx*dy==0&&!seen[v][u]&&!vis[v][u]){vis[v][u]=true;q.push([u,v])}
-      }
-    }
-    comps.push({cells,bd});
-  }
-  return comps;
-}
-
-function apply(s,[x,y]){
-  const t=tmOf(s.cur);s.o[y][x]=t+1;let g=0;
-  for(const c of scan(s,t)){
-    const vic=c.cells.filter(([a,b])=>s.o[b][a]&&s.o[b][a]!=t+1&&!s.d[b][a]);
-    if(vic.length){vic.forEach(([a,b])=>s.d[b][a]=true);s.sc[t]+=vic.length;g+=vic.length;s.loops.push({t,c})}
-  }
-  if(!g)for(let u=0;u<K();u++){ /* piège : point posé dans une zone déjà fermée par un adversaire */
-    if(u==t)continue;
-    const c=scan(s,u).find(c=>c.cells.some(([a,b])=>a==x&&b==y));
-    if(c){s.d[y][x]=true;s.sc[u]++;s.loops.push({t:u,c});break}
-  }
-  s.bonus=g>0;if(!s.bonus)s.cur=(s.cur+1)%N; /* capture = le même joueur rejoue */
-}
+/* Le moteur de règles vit dans engine.js (testé avec `npm test`). */
 function sync(){
-  if(S&&(S.n>moves.length||S.w!=W||S.h!=H))S=null;
-  if(!S)S={n:0,w:W,h:H,o:grid(0),d:grid(false),sc:Array(K()).fill(0),loops:[],cur:0,bonus:false};
-  while(S.n<moves.length){apply(S,moves[S.n]);S.n++}
+  let reset=false;
+  if(S&&(S.n>moves.length||S.w!=W||S.h!=H||S.N!=N||S.tm!=TM))S=null;
+  if(!S){S=E.create(W,H,N,TM);reset=true}
+  const before=S.n;
+  while(S.n<moves.length){E.apply(S,moves[S.n]);S.n++}
+  const added=S.n-before;if(reset||added)dirty=true;
+  return added>0&&(before>0||added===1); /* vrai = un nouveau coup à signaler (son, effet) */
 }
 
-function draw(){
-  const c=$('cv'),w=c.parentElement.clientWidth;if(!w||!S)return;
-  cs=w/(W+1);const h=cs*(H+1),r=window.devicePixelRatio||1;
-  c.width=w*r;c.height=h*r;c.style.height=h+'px';
-  const x=c.getContext('2d');x.scale(r,r);
-  const st=getComputedStyle(document.documentElement),col=n=>st.getPropertyValue(n).trim();
+/* Retours : son, vibration, effet de capture */
+const RM=matchMedia('(prefers-reduced-motion: reduce)').matches;
+let AC=null;
+function sfx(k){
+  if(!snd)return;
+  try{
+    AC=AC||new(window.AudioContext||window.webkitAudioContext)();AC.state=='suspended'&&AC.resume();
+    const f={place:[520],cap:[440,660,880],win:[523,659,784,1047]}[k],t=AC.currentTime;
+    f.forEach((hz,i)=>{const o=AC.createOscillator(),g=AC.createGain(),s0=t+i*.09;o.frequency.value=hz;
+      g.gain.setValueAtTime(.0001,s0);g.gain.exponentialRampToValueAtTime(.12,s0+.01);g.gain.exponentialRampToValueAtTime(.0001,s0+.18);
+      o.connect(g);g.connect(AC.destination);o.start(s0);o.stop(s0+.2)});
+  }catch(e){}
+}
+const vib=p=>{try{navigator.vibrate&&navigator.vibrate(p)}catch(e){}};
+const startFx=()=>{if(!RM)fx={t:performance.now(),team:S.capT,cells:S.cap}};
+
+/* Rendu : couleurs en cache, calque statique (grille, boucles, points) mis en cache, survol dessiné par-dessus */
+const COLN=['--line','--c0','--c1','--c2','--c3','--tx'];
+const col=n=>(COL||(COL=Object.fromEntries(COLN.map(k=>[k,getComputedStyle(document.documentElement).getPropertyValue(k).trim()]))))[n];
+function layer(x,w,h){
   x.strokeStyle=col('--line');x.lineWidth=1;x.beginPath();
   for(let i=1;i<=W;i++){x.moveTo(i*cs,0);x.lineTo(i*cs,h)}
   for(let j=1;j<=H;j++){x.moveTo(0,j*cs);x.lineTo(w,j*cs)}
@@ -81,35 +63,132 @@ function draw(){
     x.globalAlpha=d[b][a]?.4:1;x.fillStyle=col('--c'+(p-1));x.beginPath();x.arc(px,py,R,0,7);x.fill();x.globalAlpha=1;
     if(d[b][a]){x.strokeStyle=col('--tx');x.lineWidth=1.5;x.beginPath();x.moveTo(px-R,py-R);x.lineTo(px+R,py+R);x.moveTo(px+R,py-R);x.lineTo(px-R,py+R);x.stroke()}
   }
+}
+function paint(){
+  if(!S)return;
+  const c=$('cv');
+  if(!$('game').hidden)document.querySelector('main').style.maxWidth=Math.max(320,Math.min(900,(innerHeight-250)*(W+1)/(H+1)))+'px';
+  const w=c.parentElement.clientWidth;if(!w)return;
+  cs=w/(W+1);const h=cs*(H+1),r=window.devicePixelRatio||1,pw=Math.round(w*r),ph=Math.round(h*r);
+  if(c.width!=pw||c.height!=ph){c.width=pw;c.height=ph;c.style.height=h+'px';dirty=true}
+  if(dirty||!LC){
+    LC=LC||document.createElement('canvas');LC.width=pw;LC.height=ph;
+    const lx=LC.getContext('2d');lx.scale(r,r);layer(lx,w,h);dirty=false;
+  }
+  const x=c.getContext('2d');x.setTransform(1,0,0,1,0,0);x.clearRect(0,0,pw,ph);x.drawImage(LC,0,0);x.setTransform(r,0,0,r,0,0);
+  const R=cs*.3,P=(a,b)=>[(a+1)*cs,(b+1)*cs],{o}=S;
   const L=moves[S.n-1];
   if(L){const [px,py]=P(L[0],L[1]);x.strokeStyle=col('--tx');x.lineWidth=1.5;x.beginPath();x.arc(px,py,R+3,0,7);x.stroke()}
   if(hover&&can()&&!o[hover[1]][hover[0]]){
     const [px,py]=P(hover[0],hover[1]);x.globalAlpha=.55;x.fillStyle=col('--c'+tmOf(turn()));
     x.beginPath();x.arc(px,py,R,0,7);x.fill();x.globalAlpha=1;
   }
+  if(fx){
+    const p=(performance.now()-fx.t)/600;
+    if(p<1){x.strokeStyle=col('--c'+fx.team);x.lineWidth=2;x.globalAlpha=1-p;
+      for(const [a,b] of fx.cells){const [px,py]=P(a,b);x.beginPath();x.arc(px,py,R+p*cs*.9,0,7);x.stroke()}
+      x.globalAlpha=1;draw()}
+    else fx=null;
+  }
+}
+const draw=()=>{raf||(raf=requestAnimationFrame(()=>{raf=0;paint()}))}; /* au plus un rendu par image */
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{COL=null;dirty=true;draw()});
+
+/* Libellés, résultat, historique, partage */
+const label=i=>ai&&mode=='local'&&i==1?'IA':NAMES[i];
+function result(){ /* un abandon exclut l'équipe fautive du classement */
+  const fl=mode=='online'&&gameData&&Number.isInteger(gameData.forfeit)?tmOf(gameData.forfeit):-1;
+  const pool=S.sc.map((v,i)=>i).filter(i=>i!=fl),mx=Math.max(...pool.map(i=>S.sc[i]));
+  return{fl,mx,w:pool.filter(i=>S.sc[i]==mx)};
+}
+const loadHist=()=>{try{return JSON.parse(localStorage.getItem('g2p.hist')||'[]')}catch(e){return[]}};
+function record(){
+  if(S.n<1)return;
+  const {w}=result(),mine=mode=='online'?(me>=0?tmOf(me):-1):(ai?0:-1);
+  const r=mine<0?'':w.includes(mine)?(w.length>1?'draw':'win'):'loss';
+  const h=loadHist();h.unshift({t:Date.now(),k:daily?'daily':ai?'ai':mode,w:W,h:H,sc:S.sc.slice(),r,d:daily||undefined});
+  try{localStorage.setItem('g2p.hist',JSON.stringify(h.slice(0,30)))}catch(e){}
+  renderHist();
+}
+function renderHist(){
+  const h=loadHist(),box=$('hist');if(!h.length)return;
+  const c=k=>h.filter(x=>x.r==k).length,p=document.createElement('p'),ul=document.createElement('ul');
+  p.textContent='Victoires '+c('win')+' · Défaites '+c('loss')+' · Nuls '+c('draw')+' · '+h.length+' parties';
+  const KN={ai:'Solo IA',daily:'Défi du jour',local:'Local',online:'En ligne'},RN={win:'Victoire',loss:'Défaite',draw:'Nul','':'—'};
+  for(const x of h.slice(0,10)){const li=document.createElement('li'),a=document.createElement('span'),b=document.createElement('span');
+    a.textContent=new Date(x.t).toLocaleDateString('fr-FR')+' · '+(KN[x.k]||x.k);b.textContent=x.sc.join(' – ')+' · '+RN[x.r];li.append(a,b);ul.append(li)}
+  box.replaceChildren(p,ul);
+}
+$('share').onclick=async()=>{
+  const txt='G2Point'+(daily?' — défi du '+daily:'')+' : '+S.sc.map((v,i)=>label(i)+' '+v).join(' – ')+' · '+location.href.split('#')[0];
+  try{if(navigator.share){await navigator.share({text:txt});return}await navigator.clipboard.writeText(txt);note('Résultat copié.')}catch(e){}
+};
+
+/* Abandon : l'adversaire dont c'est le tour est inactif depuis plus de 2 minutes */
+function checkIdle(){
+  const t=gameData&&(gameData.lastAt||gameData.createdAt),ms=t&&t.toMillis?Date.now()-t.toMillis():0;
+  const on=mode=='online'&&ready&&!!S&&!over()&&me>=0&&me!=turn()&&ms>12e4;
+  $('forfeit').hidden=!on;if(on)$('forfeit').textContent='Déclarer l’abandon de '+playerName(gameData,turn());
+}
+setInterval(checkIdle,10000);
+$('forfeit').onclick=async()=>{
+  if(!confirm('Déclarer l’abandon de ce joueur ?'))return;
+  try{await ref.update({ended:true,forfeit:S.cur})}catch(e){err(e)}
+};
+
+/* IA et défi du jour */
+const seedOf=d=>+d.replace(/-/g,''),todayStr=()=>new Date().toLocaleDateString('sv-SE');
+function dailyOpening(d){ /* 6 pierres posées au hasard (graine = date), identiques pour tous */
+  const r=E.rng(seedOf(d)),out=[],used=new Set();
+  while(out.length<6){const x=3+((r()*(W-6))|0),y=4+((r()*(H-8))|0);if(!used.has(y*W+x)){used.add(y*W+x);out.push([x,y])}}
+  return out;
+}
+function aiTurn(){
+  clearTimeout(aiTimer);
+  const ok=()=>mode==='local'&&ai&&!!S&&!over()&&S.cur===1;
+  if(!ok())return;
+  aiTimer=setTimeout(()=>{
+    if(!ok())return;
+    moves=[...moves,E.aiMove(S,E.rng((daily?seedOf(daily):Date.now())+moves.length))];upd();saveLocal();aiTurn();
+  },380);
 }
 
+/* Sauvegarde / reprise */
+const loadSave=()=>{try{return JSON.parse(localStorage.getItem('g2p.save')||'null')}catch(e){return null}};
+const putSave=v=>{try{localStorage.setItem('g2p.save',JSON.stringify(v))}catch(e){}};
+function refreshResume(){
+  const sv=loadSave(),b=$('bResume');b.hidden=!sv;
+  if(sv)b.textContent=sv.m=='online'?'Reprendre la partie en ligne '+sv.c:'Reprendre '+(sv.d?'le défi du jour':sv.ai?'la partie contre l’IA':'la partie locale')+' ('+sv.mv.length+' coups)';
+}
+function clearSave(){try{localStorage.removeItem('g2p.save')}catch(e){}refreshResume()}
+const saveLocal=()=>putSave({m:'local',ai,d:daily,w:W,h:H,n:N,tm:TM,mv:moves.map(([a,b])=>b*W+a)});
+
 function upd(){
-  sync();const o=over(),p=turn(),t=tmOf(p),mt=me>=0?tmOf(me):-1,nm=i=>(TM?'Équipe ':'')+NAMES[i];
+  const fresh=sync();const o=over(),p=turn(),t=tmOf(p),mt=me>=0?tmOf(me):-1,nm=i=>(TM?'Équipe ':'')+label(i);
   $('bar').style.gridTemplateColumns='repeat('+K()+',1fr)';
-  $('bar').innerHTML=S.sc.map((v,i)=>'<div class="chip'+(!o&&ready&&i==t?' on':'')+'" style="--c:var(--c'+i+')"><span>'+NAMES[i]+(mode=='online'&&i==mt?' ★':'')+'</span><b>'+v+'</b></div>').join('');
+  $('bar').innerHTML=S.sc.map((v,i)=>'<div class="chip'+(!o&&ready&&i==t?' on':'')+'" style="--c:var(--c'+i+')"><span>'+label(i)+(mode=='online'&&i==mt?' ★':'')+'</span><b>'+v+'</b></div>').join('');
   let m;
   if(mode=='online'&&!ready)m='En attente des joueurs ('+filled+'/'+N+'). Partagez le code '+code+'.';
   else if(o){
-    const mx=Math.max(...S.sc),w=S.sc.map((v,i)=>v==mx?i:-1).filter(i=>i>=0);
-    m=w.length>1?'Égalité à '+mx+' point'+(mx>1?'s':''):nm(w[0])+' gagne avec '+mx+' point'+(mx>1?'s':'');
+    const {fl,mx,w}=result();
+    m=(fl>=0?nm(fl)+' a abandonné. ':'')+(w.length>1?'Égalité à '+mx+' point'+(mx>1?'s':''):nm(w[0])+' gagne avec '+mx+' point'+(mx>1?'s':''));
   }
   else if(mode=='local')m='Au tour de '+nm(t)+(TM?' (joueur '+(p+1)+')':'');
   else if(me<0)m='Vous observez la partie.';
   else m=me==p?'À vous de jouer ('+nm(t)+')':'Au tour de '+nm(t)+(TM?' (joueur '+(p+1)+')':'');
   $('msg').textContent=m+(!o&&ready&&S.bonus?' — point bonus !':'');
-  $('end').hidden=o||!ready;
+  $('end').hidden=o||!ready;$('rematch').hidden=!o||(mode=='online'&&me<0);$('share').hidden=!o;checkIdle();
+  $('rematch').textContent=mode=='online'&&rematchCode?'Rejoindre la revanche':'Revanche';
+  document.title=(mode=='online'&&!o&&ready&&me==p?'▶ À vous · ':'')+'G2Point — Jeu de points';
+  if(fresh){if(S.cap.length){startFx();sfx('cap');vib([30,40,30])}else{sfx('place');if(mode=='online'&&me==p)vib(40)}}
+  if(o&&!wasOver){sfx('win');clearSave();record()}
+  wasOver=o;
   draw();
 }
 
 const note=t=>($('menu').hidden?$('gnote'):$('mnote')).textContent=t||'';
 const err=e=>{const c=e&&e.code;let m=c=='permission-denied'?'Accès refusé : vérifiez la configuration et les règles Firestore.':c=='functions/unauthenticated'?'Connectez-vous puis réessayez.':((e&&(e.message||e.code))||String(e));note('Erreur : '+m)};
-function show(g){$('menu').hidden=g;$('game').hidden=!g;note('')}
+function show(g){$('menu').hidden=g;$('game').hidden=!g;note('');if(!g){document.querySelector('main').style.maxWidth='';document.title='G2Point — Jeu de points';refreshResume()}}
 const seatsOf=v=>Array.from({length:v.n},(_,k)=>v['s'+k]);
 
 function sub(){
@@ -118,7 +197,7 @@ function sub(){
     if(!s.exists){note('Partie introuvable.');return}
     const v=s.data(),sd=seatsOf(v);
     if(v.w!=W||v.h!=H||v.n!=N||!!v.tm!==TM)S=null;
-    gameData=v;W=v.w;H=v.h;N=v.n;TM=!!v.tm;moves=(v.moves||[]).map(k=>[k%W,(k/W)|0]);ended=!!v.ended;
+    gameData=v;rematchCode=v.next||'';W=v.w;H=v.h;N=v.n;TM=!!v.tm;moves=(v.moves||[]).map(k=>[k%W,(k/W)|0]);ended=!!v.ended;
     ready=sd.every(Boolean);filled=sd.filter(Boolean).length;me=sd.indexOf(cid);renderOnlinePanel(v);upd();
   },e=>err(e));
   startChatListener();
@@ -164,37 +243,29 @@ function startChatListener(){
     if(!firstChatSnapshot&&$('chatDialog').hidden){
       for(const ch of snap.docChanges())if(ch.type==='added'&&ch.doc.data().uid!==cid)chatUnread++;
     }
-    firstChatSnapshot=false;renderChatMessages(snap.docs.map(d=>({id:d.id,data:d.data()})));
+    firstChatSnapshot=false;chatRows=snap.docs.map(d=>({id:d.id,data:d.data()}));if(!$('chatDialog').hidden)renderChatMessages(chatRows);
     const badge=$('chatBadge');badge.hidden=chatUnread<1;badge.textContent=chatUnread>99?'99+':String(chatUnread);
     $('chatState').textContent='Discussion de la partie '+code+' · 100 derniers messages affichés';
   },e=>{$('chatState').textContent='Discussion indisponible : vérifiez les règles Firestore.';console.warn(e)});
 }
 async function sendChatMessage(text){
   const clean=String(text||'').trim().slice(0,500);
-  if(!clean||mode!=='online'||!ref||!cid)return;
+  if(!clean||mode!=='online'||!ref||!cid||Date.now()-lastSend<800)return;lastSend=Date.now();
   const send=$('chatSend');send.disabled=true;
-  try{await ref.collection('messages').add({uid:cid,text:clean,createdAt:firebase.firestore.FieldValue.serverTimestamp()});$('chatInput').value='';}
+  try{await ref.collection('messages').add({uid:cid,text:clean,createdAt:firebase.firestore.FieldValue.serverTimestamp(),expireAt:expiry()});$('chatInput').value='';}
   catch(e){err(e);$('chatState').textContent='Envoi impossible. Vérifiez votre connexion et les règles Firestore.'}
   finally{send.disabled=false;$('chatInput').focus()}
 }
 
+const expiry=()=>firebase.firestore.Timestamp.fromMillis(Date.now()+7*864e5); /* purge via la politique TTL Firestore */
 async function place(pt){
   if(!pt||!can()||S.o[pt[1]][pt[0]])return;
   note('');
-  if(mode==='local'){moves=[...moves,pt];upd();return}
-  try{
-    const cell=pt[1]*W+pt[0],expectedCount=moves.length;
-    await db.runTransaction(async tx=>{
-      const snap=await tx.get(ref);if(!snap.exists)throw new Error('Cette partie n’existe plus.');
-      const v=snap.data(),list=v.moves||[];
-      if(v.ended)throw new Error('Cette partie est terminée.');
-      if(!seatsOf(v).includes(cid))throw new Error('Vous ne faites pas partie de cette partie.');
-      if(list.length!==expectedCount)throw new Error('La partie vient de changer. Attendez la mise à jour puis rejouez.');
-      if(list.includes(cell))throw new Error('Cette intersection est déjà occupée.');
-      if(me!==turn())throw new Error('Ce n’est pas votre tour.');
-      tx.update(ref,{moves:list.concat(cell)});
-    });
-  }catch(e){err(e)}
+  moves=[...moves,pt];upd(); /* coup optimiste : visible tout de suite, sans attendre le serveur */
+  if(mode==='local'){saveLocal();aiTurn();return}
+  try{ /* une seule écriture (pas de transaction) ; les règles Firestore valident tour et case libre */
+    await ref.update({moves:firebase.firestore.FieldValue.arrayUnion(pt[1]*W+pt[0]),cur:S.cur,lastAt:firebase.firestore.FieldValue.serverTimestamp()});
+  }catch(e){note('Coup refusé : ce n’était pas votre tour ou la partie a changé.');console.warn(e)} /* le snapshot suivant annule le coup */
 }
 
 const cv=$('cv');
@@ -207,57 +278,72 @@ cv.onpointercancel=()=>{hover=null;draw()};
 window.addEventListener('resize',draw);
 
 const readOpts=()=>{
-  const [w,h]=$('size').value.split('x');W=+w;H=+h;TM=$('np').value==='team';N=TM?4:+$('np').value;
-  moves=[];S=null;ended=false;
+  const [w,h]=$('size').value.split('x');W=+w;H=+h;ai=$('np').value==='ai';daily='';TM=$('np').value==='team';N=TM?4:ai?2:+$('np').value;
+  moves=[];S=null;ended=false;wasOver=false;
 };
-$('np').onchange=()=>{$('modeHint').textContent=$('np').value==='team'?'Deux équipes alternent leurs tours : joueurs 1 et 3 contre joueurs 2 et 4.':$('np').value==='2'?'Duel : deux joueurs se relaient.':'Chacun pour soi : chaque joueur a son propre score.'};
+$('np').onchange=()=>{$('modeHint').textContent=$('np').value==='team'?'Deux équipes alternent leurs tours : joueurs 1 et 3 contre joueurs 2 et 4.':$('np').value==='ai'?'Solo : vous jouez Rouge contre l’ordinateur.':$('np').value==='2'?'Duel : deux joueurs se relaient.':'Chacun pour soi : chaque joueur a son propre score.'};
 $('nickname').onchange=()=>{try{localStorage.setItem('g2p.nickname',getNickname())}catch(e){}};
 try{$('nickname').value=localStorage.getItem('g2p.nickname')||''}catch(e){}
 $('bLocal').onclick=()=>{readOpts();mode='local';ready=true;me=-1;code='';gameData=null;renderOnlinePanel({n:N});show(true);upd()};
-$('bNew').onclick=async()=>{
-  if(!db||!authReady||!cid){note('La connexion en ligne n’est pas prête. Vérifiez Firebase et réessayez.');return}
-  readOpts();
-  mode='online';ready=false;me=0;gameData=null;chatUnread=0;S=null;
+async function createGame(same){
+  if(!db||!authReady||!cid){note('La connexion en ligne n’est pas prête. Vérifiez Firebase et réessayez.');return false}
+  if(!same)readOpts();
   try{
-    // HTTPS browsers expose Web Crypto. The alphabet contains exactly 32 symbols,
-    // so each random byte maps evenly to one character. Never overwrite a room.
+    // L'alphabet contient 32 symboles : chaque octet aléatoire donne un caractère sans biais. Ne jamais écraser un salon.
     const alphabet='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    let created=false;
+    let created=false,nc='',nr=null;
     for(let attempt=0;attempt<5&&!created;attempt++){
       const bytes=new Uint8Array(5);crypto.getRandomValues(bytes);
-      code=Array.from(bytes,b=>alphabet[b&31]).join('');
-      ref=db.doc('games/'+code);
+      nc=Array.from(bytes,b=>alphabet[b&31]).join('');nr=db.doc('games/'+nc);
       created=await db.runTransaction(async tx=>{
-        const existing=await tx.get(ref);
-        if(existing.exists)return false;
-        tx.set(ref,{n:N,tm:TM,w:W,h:H,s0:cid,s1:'',s2:'',s3:'',name0:getNickname(),name1:'',name2:'',name3:'',moves:[],ended:false,createdAt:firebase.firestore.FieldValue.serverTimestamp()});
+        if((await tx.get(nr)).exists)return false;
+        tx.set(nr,{n:N,tm:TM,w:W,h:H,s0:cid,s1:'',s2:'',s3:'',name0:getNickname(),name1:'',name2:'',name3:'',moves:[],cur:0,ended:false,createdAt:firebase.firestore.FieldValue.serverTimestamp(),expireAt:expiry()});
         return true;
       });
     }
     if(!created)throw new Error('Impossible de générer un code de partie unique. Réessayez.');
-    show(true);sub();
-  }catch(e){mode='';err(e)}
-};
-$('bJoin').onclick=async()=>{
-  if(!db||!authReady||!cid){note('La connexion en ligne n’est pas prête. Vérifiez Firebase et réessayez.');return}
-  const c=$('code').value.trim().toUpperCase();if(c.length!==5){note('Entrez le code à 5 caractères.');return}
+    ai=false;daily='';code=nc;ref=nr;mode='online';ready=false;me=0;gameData=null;chatUnread=0;S=null;moves=[];ended=false;rematchCode='';wasOver=false;
+    putSave({m:'online',c:code});show(true);sub();return true;
+  }catch(e){err(e);return false}
+}
+async function joinGame(c){
+  if(!db||!authReady||!cid){note('La connexion en ligne n’est pas prête. Vérifiez Firebase et réessayez.');return false}
+  c=String(c||'').trim().toUpperCase();if(c.length!==5){note('Entrez le code à 5 caractères.');return false}
   const r=db.doc('games/'+c);
   try{
     await db.runTransaction(async tx=>{
-      const s=await tx.get(r);if(!s.exists)throw new Error('Aucune partie avec ce code.');
-      const v=s.data();if(v.ended)throw new Error('Cette partie est terminée.');
+      const sn=await tx.get(r);if(!sn.exists)throw new Error('Aucune partie avec ce code.');
+      const v=sn.data();if(v.ended)throw new Error('Cette partie est terminée.');
       const seats=seatsOf(v);let i=seats.indexOf(cid);
       if(i<0){i=seats.findIndex(x=>!x);if(i<0)throw new Error('Cette partie est déjà complète.');
         tx.update(r,{['s'+i]:cid,['name'+i]:getNickname()});}
     });
-    code=c;ref=r;mode='online';chatUnread=0;S=null;show(true);sub();
-  }catch(e){err(e)}
+    ai=false;daily='';code=c;ref=r;mode='online';chatUnread=0;S=null;rematchCode='';wasOver=false;putSave({m:'online',c:code});show(true);sub();return true;
+  }catch(e){err(e);return false}
+}
+$('bNew').onclick=()=>createGame(false);
+$('bJoin').onclick=()=>joinGame($('code').value);
+$('bResume').onclick=()=>{
+  const sv=loadSave();if(!sv)return;
+  if(sv.m=='online'){joinGame(sv.c).then(ok=>{if(!ok)clearSave()});return}
+  W=sv.w;H=sv.h;N=sv.n;TM=!!sv.tm;ai=!!sv.ai;daily=sv.d||'';moves=sv.mv.map(k=>[k%W,(k/W)|0]);S=null;ended=false;wasOver=false;mode='local';ready=true;me=-1;code='';gameData=null;
+  renderOnlinePanel({n:N});show(true);if(daily)note('Défi du jour — '+daily);upd();aiTurn();
+};
+$('bDaily').onclick=()=>{
+  ai=true;daily=todayStr();W=11;H=15;N=2;TM=false;moves=dailyOpening(daily);S=null;ended=false;wasOver=false;mode='local';ready=true;me=-1;code='';gameData=null;
+  renderOnlinePanel({n:N});show(true);note('Défi du jour — '+daily);upd();
+};
+$('rematch').onclick=async()=>{
+  if(mode=='local'){moves=daily?dailyOpening(daily):[];S=null;ended=false;wasOver=false;upd();aiTurn();return}
+  if(rematchCode){joinGame(rematchCode);return}
+  const old=ref;if(await createGame(true)&&old)old.update({next:code}).catch(()=>{}); /* invite les autres joueurs */
 };
 $('end').onclick=async()=>{
+  if(!confirm('Terminer la partie maintenant ?'))return;
   if(mode=='local'){ended=true;upd()}
   else try{await ref.update({ended:true})}catch(e){err(e)}
 };
-$('back').onclick=()=>{unsub&&unsub();unsub=null;unsubChat&&unsubChat();unsubChat=null;$('chatDialog').hidden=true;mode='';moves=[];S=null;gameData=null;show(false);renderOnlinePanel({n:N})};
+$('back').onclick=()=>{clearTimeout(aiTimer);unsub&&unsub();unsub=null;unsubChat&&unsubChat();unsubChat=null;$('chatDialog').hidden=true;mode='';moves=[];S=null;gameData=null;show(false);renderOnlinePanel({n:N})};
 
 $('online').hidden=false;
 $('bNew').disabled=true;$('bJoin').disabled=true;
@@ -281,7 +367,7 @@ if(window.firebase&&validConfig){
   $('onlineState').textContent='Mode local disponible. Configurez Firebase pour activer le multijoueur en ligne.';
 }
 
-$('chatOpen').onclick=()=>{if(mode!=='online')return;chatUnread=0;$('chatBadge').hidden=true;$('chatDialog').hidden=false;renderOnlinePanel(gameData||{n:N});$('chatInput').focus()};
+$('chatOpen').onclick=()=>{if(mode!=='online')return;chatUnread=0;$('chatBadge').hidden=true;$('chatDialog').hidden=false;renderChatMessages(chatRows);renderOnlinePanel(gameData||{n:N});$('chatInput').focus()};
 $('chatClose').onclick=()=>$('chatDialog').hidden=true;
 $('chatBackdrop').onclick=e=>{if(e.target===$('chatBackdrop'))$('chatDialog').hidden=true};
 $('chatForm').addEventListener('submit',e=>{e.preventDefault();sendChatMessage($('chatInput').value)});
@@ -291,3 +377,14 @@ $('copyCode').onclick=async()=>{
   try{await navigator.clipboard.writeText(code);note('Code '+code+' copié. Envoyez-le à vos amis.');}
   catch(e){const field=document.createElement('textarea');field.value=code;field.setAttribute('readonly','');field.style.position='fixed';field.style.opacity='0';document.body.append(field);field.select();let ok=false;try{ok=document.execCommand('copy')}catch(_){}field.remove();note(ok?'Code '+code+' copié.':'Code à partager : '+code)}
 };
+
+/* Son, clavier, hors-ligne */
+const sndLabel=()=>$('snd').textContent=snd?'🔊 Son':'🔇 Muet';sndLabel();
+$('snd').onclick=()=>{snd=!snd;try{localStorage.setItem('g2p.snd',snd?'1':'0')}catch(e){}sndLabel()};
+cv.onkeydown=e=>{
+  const dir={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[e.key];
+  if(dir){e.preventDefault();const c=hover||kb;hover=kb=[Math.max(0,Math.min(W-1,c[0]+dir[0])),Math.max(0,Math.min(H-1,c[1]+dir[1]))];draw()}
+  else if(e.key==='Enter'||e.key===' '){e.preventDefault();place(hover||kb)}
+};
+refreshResume();renderHist();
+if('serviceWorker' in navigator&&(location.protocol==='https:'||location.hostname==='localhost'))navigator.serviceWorker.register('sw.js').catch(()=>{});
