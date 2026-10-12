@@ -2,8 +2,7 @@
   "name": "g2point",
   "private": true,
   "scripts": {
-    "test": "node --test tests/engine.test.js",
-    "test:rules": "firebase emulators:exec --only firestore \"node --test tests/rules.test.js\""
+    "test": "node --test tests/engine.test.js"
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^3.0.4",

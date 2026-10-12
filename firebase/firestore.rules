@@ -78,7 +78,10 @@ service cloud.firestore {
       let newMoves = request.resource.data.moves;
       let oc = resource.data.get('cur', 0);
       let nc = request.resource.data.get('cur', 0);
+      let last = resource.data.get('lastAt', resource.data.createdAt);
       return isPlayer(resource.data)
+        // Rate-limit : au moins 250 ms entre deux coups.
+        && request.time >= last + duration.value(250, 'ms')
         && allSeated(resource.data)
         // Validation du tour : seul le joueur dont c'est le tour peut jouer.
         // Le tour suivant est soit le même joueur (bonus de capture), soit le suivant.
@@ -120,6 +123,20 @@ service cloud.firestore {
         && request.time > last + duration.value(2, 'm');
     }
 
+    // Abandon volontaire : un joueur assis déclare forfait pour lui-même.
+    function validResign() {
+      let seats = [resource.data.s0, resource.data.s1, resource.data.s2, resource.data.s3];
+      let f = request.resource.data.get('forfeit', -1);
+      return isPlayer(resource.data)
+        && resource.data.ended == false
+        && allSeated(resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ended', 'forfeit'])
+        && request.resource.data.ended == true
+        && f is int
+        && f >= 0 && f < resource.data.n
+        && seats[f] == request.auth.uid;
+    }
+
     // Revanche : un joueur publie le code de la nouvelle partie une fois la partie terminée.
     function validRematch() {
       return isPlayer(resource.data)
@@ -143,6 +160,7 @@ service cloud.firestore {
         validMoveAppend() ||
         validEnd() ||
         validForfeit() ||
+        validResign() ||
         validRematch()
       );
       allow delete: if false;
@@ -168,6 +186,28 @@ service cloud.firestore {
           && validExpiry();
         allow update, delete: if false;
       }
+    }
+
+    // Partie rapide : annonces publiques (sans code), purgées par TTL sur expireAt ou supprimées par l'hôte.
+    // La liste est autorisée mais ne révèle que des informations non sensibles (hôte anonyme, format de la partie).
+    match /lobby/{lobbyCode} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && lobbyCode.matches('^[A-HJ-NP-Z2-9]{5}$')
+        && request.resource.data.keys().hasOnly(['host', 'n', 'tm', 'w', 'h', 'createdAt', 'expireAt'])
+        && request.resource.data.keys().hasAll(['host', 'n', 'tm', 'w', 'h', 'createdAt', 'expireAt'])
+        && request.resource.data.host == request.auth.uid
+        && request.resource.data.n in [2, 3, 4]
+        && request.resource.data.tm is bool
+        && request.resource.data.w in [11, 17, 23]
+        && request.resource.data.h in [15, 23, 31]
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.expireAt is timestamp
+        && request.resource.data.expireAt > request.time
+        && request.resource.data.expireAt <= request.time + duration.value(2, 'h')
+        && get(/databases/$(database)/documents/games/$(lobbyCode)).data.s0 == request.auth.uid;
+      allow update: if false;
+      allow delete: if signedIn() && resource.data.host == request.auth.uid;
     }
   }
 }
