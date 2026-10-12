@@ -1,0 +1,11 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /games/{code} {
+      allow read: if true;
+      allow create: if request.resource.data.moves.size() == 0;
+      allow update: if request.resource.data.moves.size() <= 713;
+      allow delete: if false;
+    }
+  }
+}
