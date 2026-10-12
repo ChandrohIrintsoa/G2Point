@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f5f3f8">
+<meta name="description" content="Jeu de points à 2, 3 ou 4 joueurs, en local ou en ligne avec discussion en direct.">
+<title>G2Point — Jeu de points</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<main>
+<section id="menu">
+  <h1>G2Point</h1>
+  <p>Posez un point à tour de rôle sur les intersections. Encerclez les points adverses avec une chaîne de vos points pour les capturer.</p>
+  <div class="opts">
+    <label>Terrain
+      <select id="size"><option value="11x15">Petit (11 × 15)</option><option value="17x23" selected>Moyen (17 × 23)</option><option value="23x31">Grand (23 × 31)</option></select>
+    </label>
+    <label>Mode de jeu
+      <select id="np">
+        <option value="2">Duel — 1 contre 1</option>
+        <option value="3">3 joueurs — chacun pour soi</option>
+        <option value="4">4 joueurs — chacun pour soi</option>
+        <option value="team">Équipes — 2 contre 2</option>
+      </select>
+    </label>
+    <p id="modeHint" style="font-size:13px;margin:0">Duel : deux joueurs se relaient.</p>
+    <label>Votre pseudo
+      <input type="text" id="nickname" maxlength="20" placeholder="Ex. Miora" autocomplete="nickname" aria-label="Votre pseudo">
+    </label>
+  </div>
+  <div class="stack">
+    <button class="pri" id="bLocal">Jouer sur cet appareil</button>
+    <div id="online" class="stack" style="margin:0">
+      <button id="bNew" type="button">Créer une partie en ligne</button>
+      <div class="row"><input type="text" id="code" maxlength="5" placeholder="Code" aria-label="Code de la partie" autocomplete="off" autocapitalize="characters"><button id="bJoin" type="button">Rejoindre</button></div>
+      <p id="onlineState" class="note" aria-live="polite">Préparation de la connexion en ligne…</p>
+      <p id="onlineSetup" class="setup-note">Pour jouer en ligne, configurez votre projet Firebase en suivant le fichier README.md, puis rechargez cette page. Le jeu local fonctionne sans configuration.</p>
+      <p id="hint" hidden style="font-size:14px">Créez une partie puis partagez le code à 5 caractères. Vos amis ouvrent le même site, choisissent le même mode et saisissent ce code.</p>
+    </div>
+  </div>
+  <div class="note" id="mnote" role="status" aria-live="polite"></div>
+  <details>
+    <summary>Règles du jeu</summary>
+    <ul>
+      <li>Un seul point par tour, chacun son tour. Rouge commence.</li>
+      <li>Bonus : quand vous capturez des points adverses, vous rejouez aussitôt un point supplémentaire. Une capture par piège ne donne pas de bonus.</li>
+      <li>Pour capturer, formez une boucle fermée de vos points, reliés en ligne, en colonne ou en diagonale. Les bords du terrain ne ferment pas une boucle.</li>
+      <li>Chaque point capturé vaut 1 point et reçoit une croix.</li>
+      <li>Piège : si vous posez un point dans une zone vide déjà entourée par l’adversaire, il est capturé, sauf s’il permet de capturer à son tour.</li>
+      <li>À 3 ou 4 joueurs, chacun joue pour soi. En mode équipes, les joueurs 1 et 3 affrontent les joueurs 2 et 4.</li>
+      <li>La partie s’arrête quand le terrain est plein ou lorsqu’un joueur termine la partie. Le score le plus élevé gagne.</li>
+      <li>Le chat est disponible uniquement dans une partie en ligne. Choisissez un pseudo sans information personnelle sensible.</li>
+    </ul>
+  </details>
+</section>
+
+<section id="game" hidden>
+  <div id="bar"></div>
+  <canvas id="cv" aria-label="Terrain de jeu"></canvas>
+  <div id="msg" role="status" aria-live="polite"></div>
+  <div class="note" id="gnote" role="status" aria-live="polite"></div>
+  <section id="onlinePanel" class="online-panel" hidden aria-label="Salon de la partie">
+    <div class="online-head"><span>Code de la partie : <strong id="gameCode">—</strong></span><button id="copyCode" type="button">Copier le code</button></div>
+    <div id="roster" class="roster" aria-label="Joueurs dans la partie"></div>
+    <button id="chatOpen" type="button" class="chat-launch">Ouvrir la discussion <span id="chatBadge" class="chat-badge" hidden>0</span></button>
+  </section>
+  <div class="acts"><button id="end">Terminer la partie</button><button id="back">Menu</button></div>
+</section>
+</main>
+
+<div id="chatDialog" class="chat-modal" hidden>
+  <div id="chatBackdrop" class="chat-modal" style="position:absolute;inset:0;padding:0;background:transparent">
+    <section class="chat-box" role="dialog" aria-modal="true" aria-labelledby="chatTitle" style="position:relative;z-index:1">
+      <header class="chat-head"><h2 id="chatTitle">Discussion entre joueurs</h2><button id="chatClose" type="button" aria-label="Fermer la discussion">Fermer</button></header>
+      <div id="chatState" class="chat-state" aria-live="polite">Connexion au salon…</div>
+      <div id="chatMessages" class="chat-messages" role="log" aria-live="polite" aria-relevant="additions text"><p class="chat-empty">Chargement des messages…</p></div>
+      <form id="chatForm" class="chat-form">
+        <input id="chatInput" type="text" maxlength="500" placeholder="Écrire un message…" autocomplete="off" aria-label="Votre message" required>
+        <button id="chatSend" class="pri" type="submit">Envoyer</button>
+      </form>
+    </section>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="js/firebase-config.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

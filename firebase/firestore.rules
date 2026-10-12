@@ -1,0 +1,121 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isPlayer(data) {
+      return signedIn() && (
+        data.s0 == request.auth.uid ||
+        data.s1 == request.auth.uid ||
+        data.s2 == request.auth.uid ||
+        data.s3 == request.auth.uid
+      );
+    }
+
+    function validName(value) {
+      return value is string && value.size() >= 1 && value.size() <= 20;
+    }
+
+    function validNewGame() {
+      return signedIn()
+        && request.resource.data.keys().hasAll([
+          'n', 'tm', 'w', 'h', 's0', 's1', 's2', 's3',
+          'name0', 'name1', 'name2', 'name3', 'moves', 'ended', 'createdAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'n', 'tm', 'w', 'h', 's0', 's1', 's2', 's3',
+          'name0', 'name1', 'name2', 'name3', 'moves', 'ended', 'createdAt'
+        ])
+        && request.resource.data.n in [2, 3, 4]
+        && request.resource.data.tm is bool
+        && (!request.resource.data.tm || request.resource.data.n == 4)
+        && request.resource.data.w in [11, 17, 23]
+        && request.resource.data.h in [15, 23, 31]
+        && request.resource.data.s0 == request.auth.uid
+        && request.resource.data.s1 == ''
+        && request.resource.data.s2 == ''
+        && request.resource.data.s3 == ''
+        && validName(request.resource.data.name0)
+        && request.resource.data.name1 == ''
+        && request.resource.data.name2 == ''
+        && request.resource.data.name3 == ''
+        && request.resource.data.moves is list
+        && request.resource.data.moves.size() == 0
+        && request.resource.data.ended == false
+        && request.resource.data.createdAt == request.time;
+    }
+
+    function validSeatClaim(seat, name, minimumPlayers) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([seat, name])
+        && resource.data.n >= minimumPlayers
+        && resource.data[seat] == ''
+        && request.resource.data[seat] == request.auth.uid
+        && validName(request.resource.data[name])
+        && resource.data.s0 != request.auth.uid
+        && resource.data.s1 != request.auth.uid
+        && resource.data.s2 != request.auth.uid
+        && resource.data.s3 != request.auth.uid;
+    }
+
+    function validMoveAppend() {
+      let oldMoves = resource.data.moves;
+      let newMoves = request.resource.data.moves;
+      return isPlayer(resource.data)
+        && resource.data.ended == false
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['moves'])
+        && newMoves is list
+        && newMoves.size() == oldMoves.size() + 1
+        && newMoves.size() <= 713
+        && newMoves == oldMoves.concat([newMoves[oldMoves.size()]])
+        && newMoves[oldMoves.size()] is int
+        && newMoves[oldMoves.size()] >= 0
+        && newMoves[oldMoves.size()] < resource.data.w * resource.data.h
+        && !oldMoves.hasAny([newMoves[oldMoves.size()]]);
+    }
+
+    function validEnd() {
+      return isPlayer(resource.data)
+        && resource.data.ended == false
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ended'])
+        && request.resource.data.ended == true;
+    }
+
+    match /games/{gameCode} {
+      // An authenticated client needs to read a game by its invitation code to join it.
+      // Only seated players may change game state, apart from claiming an empty seat.
+      allow read: if signedIn();
+      allow create: if validNewGame();
+      allow update: if signedIn() && (
+        validSeatClaim('s1', 'name1', 2) ||
+        validSeatClaim('s2', 'name2', 3) ||
+        validSeatClaim('s3', 'name3', 4) ||
+        validMoveAppend() ||
+        validEnd()
+      );
+      allow delete: if false;
+
+      match /messages/{messageId} {
+        function parentExists() {
+          return exists(/databases/$(database)/documents/games/$(gameCode));
+        }
+        function parentData() {
+          return get(/databases/$(database)/documents/games/$(gameCode)).data;
+        }
+        allow read: if signedIn() && parentExists() && isPlayer(parentData());
+        allow create: if signedIn()
+          && parentExists()
+          && isPlayer(parentData())
+          && request.resource.data.keys().hasOnly(['uid', 'text', 'createdAt'])
+          && request.resource.data.keys().hasAll(['uid', 'text', 'createdAt'])
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.text is string
+          && request.resource.data.text.size() >= 1
+          && request.resource.data.text.size() <= 500
+          && request.resource.data.createdAt == request.time;
+        allow update, delete: if false;
+      }
+    }
+  }
+}
