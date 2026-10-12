@@ -86,7 +86,7 @@ service cloud.firestore {
       // An authenticated client needs to read a game by its invitation code to join it.
       // Only seated players may change game state, apart from claiming an empty seat.
       allow read: if signedIn();
-      allow create: if validNewGame();
+      allow create: if gameCode.matches('^[A-HJ-NP-Z2-9]{5}$') && validNewGame();
       allow update: if signedIn() && (
         validSeatClaim('s1', 'name1', 2) ||
         validSeatClaim('s2', 'name2', 3) ||

@@ -216,11 +216,25 @@ try{$('nickname').value=localStorage.getItem('g2p.nickname')||''}catch(e){}
 $('bLocal').onclick=()=>{readOpts();mode='local';ready=true;me=-1;code='';gameData=null;renderOnlinePanel({n:N});show(true);upd()};
 $('bNew').onclick=async()=>{
   if(!db||!authReady||!cid){note('La connexion en ligne n’est pas prête. Vérifiez Firebase et réessayez.');return}
-  readOpts();code=Array.from({length:5},()=>'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.random()*32|0]).join('');
+  readOpts();
   mode='online';ready=false;me=0;gameData=null;chatUnread=0;S=null;
   try{
-    ref=db.doc('games/'+code);
-    await ref.set({n:N,tm:TM,w:W,h:H,s0:cid,s1:'',s2:'',s3:'',name0:getNickname(),name1:'',name2:'',name3:'',moves:[],ended:false,createdAt:firebase.firestore.FieldValue.serverTimestamp()});
+    // HTTPS browsers expose Web Crypto. The alphabet contains exactly 32 symbols,
+    // so each random byte maps evenly to one character. Never overwrite a room.
+    const alphabet='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let created=false;
+    for(let attempt=0;attempt<5&&!created;attempt++){
+      const bytes=new Uint8Array(5);crypto.getRandomValues(bytes);
+      code=Array.from(bytes,b=>alphabet[b&31]).join('');
+      ref=db.doc('games/'+code);
+      created=await db.runTransaction(async tx=>{
+        const existing=await tx.get(ref);
+        if(existing.exists)return false;
+        tx.set(ref,{n:N,tm:TM,w:W,h:H,s0:cid,s1:'',s2:'',s3:'',name0:getNickname(),name1:'',name2:'',name3:'',moves:[],ended:false,createdAt:firebase.firestore.FieldValue.serverTimestamp()});
+        return true;
+      });
+    }
+    if(!created)throw new Error('Impossible de générer un code de partie unique. Réessayez.');
     show(true);sub();
   }catch(e){mode='';err(e)}
 };
