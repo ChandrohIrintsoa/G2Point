@@ -22,12 +22,12 @@
   <button id="bTuto" type="button" class="lnk">Comment jouer ?</button>
   <div class="opts">
     <label>Terrain
-      <select id="size"><option value="11x15">Petit (11 × 15)</option><option value="17x23" selected>Moyen (17 × 23)</option><option value="23x31">Grand (23 × 31)</option></select>
+      <select id="size"><option value="11x15" selected>Petit (11 × 15)</option><option value="17x23">Moyen (17 × 23)</option><option value="23x31">Grand (23 × 31)</option></select>
     </label>
     <label>Mode de jeu
       <select id="np">
         <option value="2">Duel — 1 contre 1</option>
-        <option value="ai">Solo — contre l’IA</option>
+        <option value="ai" selected>Solo — contre l’IA</option>
         <option value="3">3 joueurs — chacun pour soi</option>
         <option value="4">4 joueurs — chacun pour soi</option>
         <option value="team">Équipes — 2 contre 2</option>
@@ -39,15 +39,14 @@
     <label>Thème des points
       <select id="theme"></select>
     </label>
-    <p id="modeHint" style="font-size:13px;margin:0">Duel : deux joueurs se relaient.</p>
-    <label>Votre pseudo
-      <input type="text" id="nickname" maxlength="20" placeholder="Ex. Miora" autocomplete="nickname" aria-label="Votre pseudo">
+    <label class="nickname-field">Votre pseudo
+      <input type="text" id="nickname" maxlength="20" placeholder="Choisissez votre signature" autocomplete="nickname" aria-label="Votre pseudo">
     </label>
   </div>
   <div class="stack">
     <button id="bResume" type="button" hidden></button>
     <button class="pri" id="bLocal">Jouer sur cet appareil</button>
-    <button id="bDaily" type="button">Défi du jour (contre l’IA, terrain 11 × 15)</button>
+    <button id="bDaily" type="button">Défi du jour · génération automatique</button>
     <button id="bPuz" type="button">Puzzles : capture en 1 coup</button>
     <div id="puzList" class="stack" hidden></div>
     <div id="online" class="stack" style="margin:0">
@@ -65,7 +64,7 @@
     <div id="liveList" class="hist"></div>
   </details>
   <details>
-    <summary>Progression et succès</summary>
+    <summary id="progSummary">Progression et succès <span class="hold-caption">· Maintenir 15 s pour le laboratoire IA</span><span id="aiHoldBar"></span></summary>
     <div id="prog" class="hist"></div>
   </details>
   <details>
@@ -76,7 +75,7 @@
 
 <section id="game" hidden>
   <div id="bar"></div>
-  <div id="cvw"><canvas id="cv" tabindex="0" role="application" aria-label="Terrain de jeu. Flèches pour déplacer le curseur, Entrée pour poser un point"></canvas></div>
+  <div id="cvw"><canvas id="cv" tabindex="0" role="application" aria-label="Terrain de jeu. Flèches pour déplacer le curseur, Entrée pour poser un point"></canvas><button id="boardFullscreen" type="button" aria-label="Mettre le terrain en plein écran">⛶ Plein écran</button></div>
     <div class="view-controls" aria-label="Réglages du terrain">
       <button id="zoomOut" type="button" aria-label="Dézoomer">−</button>
       <label class="zoom-slider" for="zoomRange"><span>Zoom</span><input id="zoomRange" type="range" min="1" max="4" step="0.05" value="1"><output id="zoomValue" for="zoomRange">100 %</output></label>
@@ -90,9 +89,10 @@
     <div class="online-head"><span>Code de la partie : <strong id="gameCode">—</strong></span><button id="copyCode" type="button">Copier le code</button></div>
     <div id="roster" class="roster" aria-label="Joueurs dans la partie"></div>
     <button id="cancelQueue" class="danger-soft" type="button" hidden>Annuler la recherche et supprimer le salon</button>
-    <button id="chatOpen" type="button" class="chat-launch">Ouvrir la discussion <span id="chatBadge" class="chat-badge" hidden>0</span></button>
+    <button id="chatOpen" type="button" class="chat-launch">✉ Message <span id="chatBadge" class="chat-badge" hidden>0</span></button>
   </section>
   <div id="quickReactions" class="quick-reactions" hidden aria-label="Réactions rapides">
+    <button id="toggleReactions" type="button" class="reaction-toggle" aria-expanded="true">Réactions −</button>
     <button type="button" data-e="👏" aria-label="Applaudir">👏</button><button type="button" data-e="🔥" aria-label="Bien joué">🔥</button><button type="button" data-e="😂" aria-label="Rire">😂</button><button type="button" data-e="😮" aria-label="Surpris">😮</button><button type="button" data-e="😤" aria-label="Défi">😤</button>
   </div>
   <div id="chatToasts" class="chat-toasts" aria-live="polite" aria-atomic="false"></div>
@@ -125,21 +125,38 @@
   </section>
 </div>
 
-<div id="chatDialog" class="chat-modal" hidden>
-  <div id="chatBackdrop" class="chat-modal" style="position:absolute;inset:0;padding:0;background:transparent">
-    <section class="chat-box" role="dialog" aria-modal="true" aria-labelledby="chatTitle" style="position:relative;z-index:1">
-      <header class="chat-head"><h2 id="chatTitle">Discussion entre joueurs</h2><button id="chatClose" type="button" aria-label="Fermer la discussion">Fermer</button></header>
-      <div id="chatState" class="chat-state" aria-live="polite">Connexion au salon…</div>
-      <div id="chatMessages" class="chat-messages" role="log" aria-live="polite" aria-relevant="additions text"><p class="chat-empty">Chargement des messages…</p></div>
-      <div id="emojis" class="emojis" aria-label="Réactions rapides"><button type="button" data-e="😮">😮</button><button type="button" data-e="🔥">🔥</button><button type="button" data-e="😤">😤</button><button type="button" data-e="👏">👏</button><button type="button" data-e="😂">😂</button></div>
-      <form id="chatForm" class="chat-form">
-        <input id="chatInput" type="text" maxlength="500" placeholder="Écrire un message…" autocomplete="off" aria-label="Votre message" required>
-        <button id="chatSend" class="pri" type="submit">Envoyer</button>
-      </form>
-    </section>
-  </div>
+<div id="chatDialog" class="chat-popup" hidden role="dialog" aria-modal="false" aria-labelledby="chatTitle">
+  <section class="chat-box">
+    <header class="chat-head"><h2 id="chatTitle">Message éphémère</h2><button id="chatClose" type="button" aria-label="Fermer la fenêtre de message">Fermer</button></header>
+    <div id="chatState" class="chat-state" aria-live="polite">Les messages disparaissent après 24 heures.</div>
+    <div id="chatMessages" class="chat-messages" role="log" aria-live="polite" aria-relevant="additions text"><p class="chat-empty">Chargement des messages…</p></div>
+    <form id="chatForm" class="chat-form">
+      <input id="chatInput" type="text" maxlength="500" placeholder="Écrire un message…" autocomplete="off" aria-label="Votre message" required>
+      <button id="chatSend" class="pri" type="submit">Envoyer</button>
+    </form>
+  </section>
 </div>
 
+<div id="aiLab" class="chat-modal" hidden role="dialog" aria-modal="true" aria-labelledby="aiLabTitle">
+  <section class="win-box ai-lab-box">
+    <header class="ai-lab-head"><div><p class="tuto-step">Accès avancé · maintien 15 secondes</p><h2 id="aiLabTitle">Laboratoire de l’IA</h2></div><button id="aiLabClose" type="button" aria-label="Fermer le laboratoire">Fermer</button></header>
+    <p class="ai-lab-intro">Analysez la mémoire stratégique de l’IA et lancez un entraînement comparatif.</p>
+    <div id="aiStats" class="ai-stats"></div>
+    <div id="aiCapabilities" class="ai-capabilities"></div>
+    <p id="aiTrainStatus" class="note" role="status" aria-live="polite">L’IA peut apprendre à partir des parties et des simulations.</p>
+    <div class="stack"><button id="aiTrain" class="pri" type="button">Entraîner l’IA maintenant</button><button id="aiLabDone" type="button">Terminer</button></div>
+  </section>
+</div>
+
+<div id="gameDock" class="game-dock" hidden>
+  <button id="gameDockToggle" type="button" aria-expanded="false" aria-controls="gameDockPanel">☰ Menu</button>
+  <div id="gameDockPanel" class="game-dock-panel" hidden>
+    <button id="dockFullscreen" type="button">⛶ Terrain plein écran</button>
+    <button id="dockReactions" type="button">Réactions rapides</button>
+    <button id="dockChat" type="button">✉ Message</button>
+    <button id="dockMenu" type="button">Menu principal</button>
+  </div>
+</div>
 <script defer src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script defer src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script defer src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>

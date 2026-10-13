@@ -1,1 +1,1 @@
-{"name":"G2Point","short_name":"G2Point","description":"Jeu de points à 2, 3 ou 4 joueurs","start_url":"./","display":"standalone","lang":"fr","background_color":"#07060f","theme_color":"#07060f","icons":[{"src":"icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any"}]}
+{"name":"G2Point","short_name":"G2Point","description":"Jeu de points","start_url":"./","display":"standalone","lang":"fr","background_color":"#07060f","theme_color":"#07060f","icons":[{"src":"icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any"}]}

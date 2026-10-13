@@ -3,7 +3,7 @@ const E=window.G2Engine,PZ=window.G2Puzzles;
 /* Constantes nommées (plus de nombres magiques dans le rendu et la logique) */
 const TAU=Math.PI*2,STONE_R=.3,LINE_W=.13,LAST_RING=3,FX_MS=600,POP_MS=380,STAGGER_MS=60,MAX_STAGGER=20,WIN_DELAY=900,
   CHAT_BADGE_MAX=99,CHAT_SCROLL_SLACK=70,CHAT_TOAST_MS=4200,IDLE_FORFEIT_MS=12e4,AI_DELAY_MS=380,DAILY_STONES=6,MAX_LIVE=5,PAN_PX=10,
-  ZOOM_MIN=1,ZOOM_MAX=4,ZOOM_STEP=1.18,AUTO_EVERY_MS=45000,AUTO_MAX_GAMES=40,PUZ_RETRY_MS=1300,ELO_K=24,LOBBY_TTL_MS=36e5,LOBBY_MAX_AGE_MS=6e5,
+  ZOOM_MIN=1,ZOOM_MAX=4,ZOOM_STEP=1.18,AUTO_EVERY_MS=45000,AUTO_MAX_GAMES=40,PUZ_RETRY_MS=1300,ELO_K=24,LOBBY_TTL_MS=36e5,LOBBY_MAX_AGE_MS=6e5,CHAT_TTL_MS=24*60*60*1000,
   THEMES=[{id:'neon',name:'Néon',need:0},{id:'aurore',name:'Aurore',need:1},{id:'ambre',name:'Ambre',need:3},{id:'mono',name:'Monochrome',need:7}];
 let puz=-1,puzState='',zoom=1,prevSc=null,prevCombo=0,pop=null,winTimer=0,lvl=1,autoBusy=false,autoCount=0,lobbyCode='',an=null,newAch=[],pan=null;
 const jget=(k,d)=>{try{const v=JSON.parse(localStorage.getItem(k));return v==null?d:v}catch(e){return d}},jset=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
@@ -89,8 +89,9 @@ function layer(x,w,h){
 function paint(){
   if(!S)return;
   const c=$('cv'),wrap=$('cvw');
-  if(!$('game').hidden)document.querySelector('main').style.maxWidth=Math.max(320,Math.min(900,(innerHeight-250)*(W+1)/(H+1)))+'px';
-  const bw=wrap.clientWidth;if(!bw)return;
+  const fullBoard=wrap.matches(':fullscreen')||wrap.classList.contains('board-fullscreen');
+  if(!$('game').hidden)document.querySelector('main').style.maxWidth=fullBoard?'none':Math.max(320,Math.min(900,(innerHeight-250)*(W+1)/(H+1)))+'px';
+  const bw=fullBoard?Math.min(innerWidth-24,(innerHeight-24)*(W+1)/(H+1)):wrap.clientWidth;if(!bw)return;
   wrap.classList.toggle('zoomed',zoom>1);
   const w=bw*zoom;
   cs=w/(W+1);const h=cs*(H+1),r=window.devicePixelRatio||1,pw=Math.round(w*r),ph=Math.round(h*r),now=performance.now();
@@ -348,7 +349,7 @@ function upd(){
 
 const note=t=>($('menu').hidden?$('gnote'):$('mnote')).textContent=t||'';
 const err=e=>{const c=e&&e.code;let m=c=='permission-denied'?'Accès refusé : vérifiez la configuration et les règles Firestore.':c=='functions/unauthenticated'?'Connectez-vous puis réessayez.':((e&&(e.message||e.code))||String(e));note('Erreur : '+m)};
-function show(g){$('menu').hidden=g;$('game').hidden=!g;note('');if(!g){document.querySelector('main').style.maxWidth='';document.title='G2Point — Jeu de points';refreshResume();renderLive();renderProg();fillThemes()}}
+function show(g){$('menu').hidden=g;$('game').hidden=!g;$('gameDock').hidden=!g;note('');if(!g){document.querySelector('main').style.maxWidth='';document.title='G2Point — Jeu de points';refreshResume();renderLive();renderProg();fillThemes()}}
 const seatsOf=v=>Array.from({length:v.n},(_,k)=>v['s'+k]);
 
 function sub(){
@@ -372,7 +373,7 @@ function playerNameByUid(uid){
 }
 function renderOnlinePanel(v){
   const panel=$('onlinePanel');panel.hidden=mode!=='online';
-  $('quickReactions').hidden=mode!=='online';
+  $('quickReactions').hidden=mode!=='online'||!ready||me<0;
   $('cancelQueue').hidden=mode!=='online';
   if(mode!=='online')return;
   $('gameCode').textContent=code||'—';
@@ -385,7 +386,9 @@ function renderOnlinePanel(v){
   }
   const badge=$('chatBadge');badge.hidden=chatUnread<1;badge.textContent=chatUnread>CHAT_BADGE_MAX?CHAT_BADGE_MAX+'+':String(chatUnread);
 }
+const chatIsFresh=d=>{const ex=d.expireAt,created=d.createdAt;const expires=ex&&ex.toDate?ex.toDate().getTime():ex&&typeof ex.seconds==='number'?ex.seconds*1000:Date.now()+CHAT_TTL_MS;const sent=created&&created.toDate?created.toDate().getTime():created&&typeof created.seconds==='number'?created.seconds*1000:0;return expires>Date.now()&&(!sent||Date.now()-sent<CHAT_TTL_MS)};
 function renderChatMessages(rows){
+  rows=rows.filter(row=>chatIsFresh(row.data||{}));
   const box=$('chatMessages'),wasNearBottom=box.scrollHeight-box.scrollTop-box.clientHeight<CHAT_SCROLL_SLACK;
   box.replaceChildren();
   if(!rows.length){const empty=document.createElement('p');empty.className='chat-empty';empty.textContent='Aucun message pour le moment. Lancez la discussion.';box.append(empty);return}
@@ -409,8 +412,13 @@ function showChatToast(d){
   toast.append(meta,body);host.append(toast);
   setTimeout(()=>{toast.classList.add('leaving');setTimeout(()=>toast.remove(),260)},CHAT_TOAST_MS);
 }
+async function purgeExpiredMessages(){
+  if(!ref||!firebase||!firebase.firestore)return;
+  try{for(const [field,cutoff] of [['expireAt',firebase.firestore.Timestamp.now()],['createdAt',firebase.firestore.Timestamp.fromMillis(Date.now()-CHAT_TTL_MS)]])for(let i=0;i<5;i++){const old=await ref.collection('messages').where(field,'<=',cutoff).limit(100).get();if(old.empty)break;await Promise.all(old.docs.map(d=>d.ref.delete().catch(()=>null)));if(old.size<100)break}}catch(e){}
+}
 function startChatListener(){
   if(!ref||mode!=='online')return;
+  purgeExpiredMessages();
   unsubChat&&unsubChat();firstChatSnapshot=true;
   unsubChat=ref.collection('messages').orderBy('createdAt','asc').limitToLast(100).onSnapshot(snap=>{
     if(!firstChatSnapshot){
@@ -419,21 +427,23 @@ function startChatListener(){
         if($('chatDialog').hidden)showChatToast(ch.doc.data());
       }
     }
-    firstChatSnapshot=false;chatRows=snap.docs.map(d=>({id:d.id,data:d.data()}));if(!$('chatDialog').hidden)renderChatMessages(chatRows);
+    firstChatSnapshot=false;chatRows=snap.docs.map(d=>({id:d.id,data:d.data()})).filter(row=>chatIsFresh(row.data));if(!$('chatDialog').hidden)renderChatMessages(chatRows);
     const badge=$('chatBadge');badge.hidden=chatUnread<1;badge.textContent=chatUnread>CHAT_BADGE_MAX?CHAT_BADGE_MAX+'+':String(chatUnread);
-    $('chatState').textContent='Discussion de la partie '+code+' · 100 derniers messages affichés';
+    $('chatState').textContent='Discussion éphémère · suppression automatique après 24 h';
   },e=>{$('chatState').textContent='Discussion indisponible : vérifiez les règles Firestore.';console.warn(e)});
 }
 async function sendChatMessage(text,keep){
   const clean=String(text||'').trim().slice(0,500);
   if(!clean||mode!=='online'||!ref||!cid||Date.now()-lastSend<800)return;lastSend=Date.now();
   const send=$('chatSend');send.disabled=true;
-  try{await ref.collection('messages').add({uid:cid,text:clean,createdAt:firebase.firestore.FieldValue.serverTimestamp(),expireAt:expiry()});if(!keep)$('chatInput').value='';}
+  let sent=false;
+  try{await ref.collection('messages').add({uid:cid,text:clean,createdAt:firebase.firestore.FieldValue.serverTimestamp(),expireAt:messageExpiry()});if(!keep){$('chatInput').value='';sent=true}}
   catch(e){err(e);$('chatState').textContent='Envoi impossible. Vérifiez votre connexion et les règles Firestore.'}
-  finally{send.disabled=false;if(!$('chatDialog').hidden)$('chatInput').focus()}
+  finally{send.disabled=false;if(sent)closeChatPopup();else if(!$('chatDialog').hidden)$('chatInput').focus()}
 }
 
-const expiry=()=>firebase.firestore.Timestamp.fromMillis(Date.now()+7*864e5); /* purge via la politique TTL Firestore */
+const expiry=()=>firebase.firestore.Timestamp.fromMillis(Date.now()+7*864e5);
+const messageExpiry=()=>firebase.firestore.Timestamp.fromMillis(Date.now()+CHAT_TTL_MS);
 async function place(pt){
   if(!pt||!can()||S.o[pt[1]][pt[0]])return;
   if(S.blk[pt[1]][pt[0]]){note('Territoire fermé : cette case est inaccessible.');return}
@@ -478,7 +488,7 @@ const readOpts=()=>{
   const [w,h]=$('size').value.split('x');W=+w;H=+h;ai=$('np').value==='ai';daily='';TM=$('np').value==='team';N=TM?4:ai?2:+$('np').value;
   lvl=+$('lvl').value||0;try{localStorage.setItem('g2p.lvl',String(lvl))}catch(e){}puz=-1;puzState='';moves=[];S=null;ended=false;wasOver=false;resetMatchFx();
 };
-$('np').onchange=()=>{$('lvlRow').hidden=$('np').value!=='ai';$('modeHint').textContent=$('np').value==='team'?'Deux équipes alternent leurs tours : joueurs 1 et 3 contre joueurs 2 et 4.':$('np').value==='ai'?'Solo : vous jouez Rouge contre l’ordinateur.':$('np').value==='2'?'Duel : deux joueurs se relaient.':'Chacun pour soi : chaque joueur a son propre score.'};
+$('np').onchange=()=>{$('lvlRow').hidden=$('np').value!=='ai'};
 $('nickname').onchange=()=>{try{localStorage.setItem('g2p.nickname',getNickname())}catch(e){}};
 try{$('nickname').value=localStorage.getItem('g2p.nickname')||''}catch(e){}
 $('bLocal').onclick=()=>{readOpts();aiPick();mode='local';ready=true;me=-1;code='';gameData=null;renderOnlinePanel({n:N});show(true);upd()};
@@ -612,13 +622,35 @@ const validConfig=!!(FIREBASE_CONFIG.apiKey&&FIREBASE_CONFIG.authDomain&&FIREBAS
   $('onlineState').textContent='Mode local disponible. Configurez Firebase pour activer le multijoueur en ligne.';
 }
 
-$('chatOpen').onclick=()=>{if(mode!=='online')return;chatUnread=0;$('chatBadge').hidden=true;$('chatDialog').hidden=false;renderChatMessages(chatRows);renderOnlinePanel(gameData||{n:N});$('chatInput').focus()};
-$('chatClose').onclick=()=>$('chatDialog').hidden=true;
-$('chatBackdrop').onclick=e=>{if(e.target===$('chatBackdrop'))$('chatDialog').hidden=true};
-$('emojis').onclick=e=>{const b=e.target.closest('button[data-e]');if(b)sendChatMessage(b.dataset.e,true)};
-$('quickReactions').onclick=e=>{const b=e.target.closest('button[data-e]');if(b)sendChatMessage(b.dataset.e,true)};
+function openChatPopup(){if(mode!=='online'||!ready)return;chatUnread=0;$('chatBadge').hidden=true;$('chatDialog').hidden=false;renderChatMessages(chatRows);renderOnlinePanel(gameData||{n:N});$('chatInput').focus({preventScroll:true})}
+function closeChatPopup(){$('chatDialog').hidden=true;$('chatInput').blur()}
+$('chatOpen').onclick=openChatPopup;
+$('chatClose').onclick=closeChatPopup;
+$('quickReactions').onclick=e=>{const b=e.target.closest('button[data-e]');if(b&&b.id!=='toggleReactions')sendChatMessage(b.dataset.e,true)};
+$('toggleReactions').onclick=()=>{const box=$('quickReactions'),collapsed=box.classList.toggle('collapsed');$('toggleReactions').textContent=collapsed?'Réactions +':'Réactions −';$('toggleReactions').setAttribute('aria-expanded',String(!collapsed))};
 $('chatForm').addEventListener('submit',e=>{e.preventDefault();sendChatMessage($('chatInput').value)});
-document.addEventListener('keydown',e=>{if(e.key==='Escape')$('chatDialog').hidden=true});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeChatPopup();$('aiLab').hidden=true}});
+$('gameDockToggle').onclick=()=>{const panel=$('gameDockPanel'),open=panel.hidden;panel.hidden=!open;$('gameDockToggle').setAttribute('aria-expanded',String(open));$('gameDockToggle').textContent=open?'☰ Fermer':'☰ Menu'};
+$('dockFullscreen').onclick=()=>$('boardFullscreen').click();
+$('dockReactions').onclick=()=>$('toggleReactions').click();
+$('dockChat').onclick=openChatPopup;
+$('dockMenu').onclick=()=>$('back').click();
+async function toggleBoardFullscreen(){
+  const board=$('cvw');
+  try{
+    if(board.classList.contains('board-fullscreen'))board.classList.remove('board-fullscreen');
+    else if(document.fullscreenElement===board)await document.exitFullscreen();
+    else if(document.fullscreenElement){await document.exitFullscreen();await board.requestFullscreen()}
+    else if(board.requestFullscreen)await board.requestFullscreen();
+    else board.classList.add('board-fullscreen');
+  }catch(e){board.classList.toggle('board-fullscreen')}
+  updateFullscreenLabel();draw();
+}
+function updateFullscreenLabel(){const active=document.fullscreenElement===$('cvw')||$('cvw').classList.contains('board-fullscreen');$('boardFullscreen').textContent=active?'⤢ Quitter le plein écran':'⛶ Plein écran';$('dockFullscreen').textContent=active?'⤢ Quitter le plein écran':'⛶ Terrain plein écran'}
+$('boardFullscreen').onclick=toggleBoardFullscreen;
+document.addEventListener('fullscreenchange',()=>{updateFullscreenLabel();draw()});
+$('cvw').addEventListener('dblclick',toggleBoardFullscreen);
+
 $('copyCode').onclick=async()=>{
   if(!code)return;
   try{await navigator.clipboard.writeText(code);note('Code '+code+' copié. Envoyez-le à vos amis.');}
@@ -680,6 +712,56 @@ function renderProg(){
   ACHS.forEach(a=>ul.append(mk('li',(P.ach[a.id]?'🏆 ':'🔒 ')+a.n+' — '+a.d,P.ach[a.id]?'':'off')));els.push(ul);
   box.replaceChildren(...els);
 }
+
+function renderAILab(){
+  const a=loadAI(),patterns=Object.keys(a.book||{}).length,weights=(a.w||[]).length,played=a.st||{g:0,w:0};
+  const rate=played.g?Math.round(100*(played.w||0)/played.g):50;
+  const qi=Math.max(80,Math.min(180,100+Math.round(Math.log2(1+patterns)*5)+Math.round((rate-50)/5)));
+  const stats=[['QI de jeu',qi+' pts'],['Parties apprises',a.games||0],['Motifs mémorisés',patterns],['Paramètres stratégiques',weights],['Taux de victoire IA',rate+' %']];
+  const host=$('aiStats');host.replaceChildren();
+  for(const [label,value] of stats){const card=document.createElement('div'),name=document.createElement('span'),v=document.createElement('strong');card.className='ai-stat';name.textContent=label;v.textContent=value;card.append(name,v);host.append(card)}
+  const cap=$('aiCapabilities'),items=[
+    'Mémorise les configurations et séquences de coups observées.',
+    'Évalue les positions avec '+weights+' paramètres stratégiques.',
+    a.c?'Teste une variante challenger face à son champion.':'Peut générer une variante pour défier son champion.',
+    'S’entraîne par simulation sur un terrain de 11 × 15.'
+  ];
+  cap.replaceChildren();for(const item of items){const line=document.createElement('p');line.textContent=item;cap.append(line)}
+}
+function openAILab(){renderAILab();$('aiLab').hidden=false;$('aiTrainStatus').textContent='Le QI de jeu est un indicateur interne basé sur la mémoire et les résultats de l’IA, pas un test psychométrique.'}
+async function trainAILab(){
+  if(autoBusy){$('aiTrainStatus').textContent='Un entraînement est déjà en cours.';return}
+  autoBusy=true;$('aiTrain').disabled=true;$('aiTrainStatus').textContent='Entraînement en cours · 8 simulations…';
+  let difference=0,challengerWins=0,promoted=false;
+  try{
+    const start=loadAI(),challenger=E.mutate(start.w,Math.random),championKey=JSON.stringify(start.w);
+    for(let side=0;side<8;side++){
+      const current=loadAI(),champion={w:current.w,book:current.book,lvl:1},variant={w:challenger,book:current.book,lvl:1};
+      const variantFirst=side%2===0,r=await selfPlay(variantFirst?variant:champion,variantFirst?champion:variant);
+      const variantScore=r.sc[variantFirst?0:1],championScore=r.sc[variantFirst?1:0];
+      difference+=variantScore-championScore;if(variantScore>championScore)challengerWins++;
+      const a=loadAI();E.learn(a.book,r.moves,11,15,2,false,r.sc[0]>r.sc[1]?[0]:r.sc[1]>r.sc[0]?[1]:[]);a.games=(a.games||0)+1;a.st=a.st||{g:0,w:0};a.st.g++;a.st.w+=variantScore>championScore?1:0;saveAI(a);
+      $('aiTrainStatus').textContent='Simulation '+(side+1)+'/8 · '+challengerWins+' victoire(s) de la variante';
+    }
+    const a=loadAI();if(difference>0&&JSON.stringify(a.w)===championKey){a.w=challenger;a.c=null;promoted=true}saveAI(a);
+    $('aiTrainStatus').textContent=promoted?'Entraînement terminé : la variante a dépassé le champion et devient la nouvelle IA.':'Entraînement terminé : le champion conserve sa place. La mémoire a été enrichie.';
+    renderAILab();
+  }catch(e){$('aiTrainStatus').textContent='Entraînement interrompu : '+(e.message||'une erreur est survenue.')}finally{autoBusy=false;$('aiTrain').disabled=false}
+}
+$('aiTrain').onclick=trainAILab;
+$('aiLabClose').onclick=()=>$('aiLab').hidden=true;
+$('aiLabDone').onclick=()=>$('aiLab').hidden=true;
+let aiHoldTimer=0,aiHoldTriggered=false;
+const progSummary=$('progSummary'),aiHoldBar=$('aiHoldBar');
+function cancelAIHold(){clearTimeout(aiHoldTimer);aiHoldTimer=0;progSummary.classList.remove('ai-holding');aiHoldBar.style.transition='none';aiHoldBar.style.transform='scaleX(0)'}
+progSummary.addEventListener('pointerdown',e=>{
+  if(e.pointerType==='mouse'&&e.button!==0)return;
+  cancelAIHold();void aiHoldBar.offsetWidth;progSummary.classList.add('ai-holding');aiHoldBar.style.transition='transform 15s linear';aiHoldBar.style.transform='scaleX(1)';
+  aiHoldTimer=setTimeout(()=>{aiHoldTimer=0;aiHoldTriggered=true;progSummary.closest('details').open=false;cancelAIHold();openAILab()},15000);
+});
+['pointerup','pointercancel','pointerleave'].forEach(type=>progSummary.addEventListener(type,e=>{if(type!=='pointerleave'||e.pointerType==='mouse')cancelAIHold()}));
+progSummary.addEventListener('click',e=>{if(aiHoldTriggered){e.preventDefault();e.stopPropagation();aiHoldTriggered=false}});
+progSummary.addEventListener('contextmenu',e=>e.preventDefault());
 function fillThemes(){
   const n=jget('g2p.dd',[]).length,sel=$('theme'),cur=(()=>{try{return localStorage.getItem('g2p.theme')||'neon'}catch(e){return'neon'}})();
   sel.replaceChildren(...THEMES.map(t=>{const o=document.createElement('option'),ok=n>=t.need;o.value=t.id;o.disabled=!ok;o.textContent=ok?t.name:t.name+' 🔒 ('+t.need+' défi'+(t.need>1?'s':'')+' du jour)';return o}));
@@ -885,7 +967,7 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden){cloudFlus
 
 /* ===== Initialisation des nouveautés ===== */
 try{const l=localStorage.getItem('g2p.lvl');if(l!=null)$('lvl').value=l}catch(e){}
-fillThemes();renderProg();renderPuz();zoomLabel();
+fillThemes();renderProg();renderPuz();zoomLabel();$('lvlRow').hidden=$('np').value!=='ai';$('bDaily').title='Un nouveau défi, déterminé automatiquement pour la date du jour, est proposé à chaque journée.';
 let firstRun=true;try{firstRun=!localStorage.getItem('g2p.tuto')}catch(e){}
 if(firstRun)setTimeout(tutoOpen,500);
 

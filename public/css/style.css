@@ -184,3 +184,61 @@ button.danger-soft:hover:not(:disabled){background:rgba(255,42,109,.2);box-shado
 }
 @media(prefers-reduced-motion:reduce){.chat-toast,.chat-toast.leaving{animation:none}}
 .score-draw{border-color:var(--c3)!important;background:rgba(255,184,0,.06)}
+
+.nickname-field{display:grid!important;grid-template-columns:1fr;gap:8px!important;color:var(--neon)!important;font:700 11px var(--disp);letter-spacing:.14em!important}
+#nickname{width:100%;max-width:none!important;min-height:48px;padding:12px 14px!important;border:1px solid rgba(5,217,232,.55)!important;border-bottom:2px solid var(--hot)!important;border-radius:12px!important;background:linear-gradient(110deg,rgba(5,217,232,.1),rgba(255,42,109,.08))!important;color:#fff!important;font:600 14px var(--disp)!important;letter-spacing:.06em!important;text-transform:uppercase;box-shadow:inset 0 0 18px rgba(5,217,232,.08),0 0 18px rgba(5,217,232,.08)}
+#nickname:focus{box-shadow:0 0 0 3px rgba(5,217,232,.12),0 0 22px rgba(5,217,232,.22)}
+#nickname::placeholder{font:500 12px system-ui,sans-serif;letter-spacing:.02em;color:#8f8bc4}
+#cvw{position:relative}
+#boardFullscreen{position:absolute;top:10px;right:10px;z-index:4;min-height:36px;padding:7px 10px;border:1px solid rgba(5,217,232,.5);background:rgba(7,6,15,.82);backdrop-filter:blur(10px);font-size:10px}
+#cvw:fullscreen,#cvw.board-fullscreen{position:fixed;inset:0;z-index:1000;width:100vw;height:100dvh;max-width:none;max-height:none;overflow:auto;display:flex;align-items:center;justify-content:center;padding:12px;border:0;border-radius:0;background:#07060f;box-shadow:none}
+#cvw:fullscreen canvas,#cvw.board-fullscreen canvas{max-width:none;flex:0 0 auto;margin:auto}
+#cvw:fullscreen #boardFullscreen,#cvw.board-fullscreen #boardFullscreen{position:fixed;top:max(12px,env(safe-area-inset-top));right:max(12px,env(safe-area-inset-right));z-index:1002}
+.quick-reactions{align-items:center;max-width:calc(100vw - 24px)}
+.quick-reactions .reaction-toggle{width:auto;min-width:76px;height:36px;min-height:36px;padding:0 12px;border:1px solid rgba(5,217,232,.35);border-radius:999px;background:rgba(5,217,232,.12);font:700 10px var(--disp);letter-spacing:.08em;color:var(--neon)}
+.quick-reactions.collapsed{padding:5px}
+.quick-reactions.collapsed button[data-e]{display:none}
+.game-dock{position:fixed;left:max(12px,env(safe-area-inset-left));bottom:calc(12px + env(safe-area-inset-bottom));z-index:80;display:grid;justify-items:start;gap:8px}
+#gameDockToggle{min-width:108px;border:1px solid rgba(5,217,232,.6);border-radius:999px;background:rgba(9,8,25,.94);box-shadow:0 10px 32px rgba(0,0,0,.45),0 0 18px rgba(5,217,232,.16);backdrop-filter:blur(14px)}
+.game-dock-panel{order:-1;display:grid;gap:6px;width:min(220px,calc(100vw - 24px));padding:9px;border:1px solid rgba(5,217,232,.35);border-radius:14px;background:rgba(9,8,25,.96);box-shadow:0 12px 36px rgba(0,0,0,.5);backdrop-filter:blur(16px)}
+.game-dock-panel button{width:100%;min-height:39px;padding:8px 10px;text-align:left;font-size:10px}
+.chat-popup{position:fixed;inset:auto 12px calc(10px + env(safe-area-inset-bottom));z-index:90;display:flex;justify-content:center;pointer-events:none;padding:0;background:transparent;backdrop-filter:none}
+.chat-popup .chat-box{pointer-events:auto;width:min(100%,460px);height:auto;max-height:min(48dvh,420px);border:1px solid rgba(5,217,232,.65);border-radius:16px;background:rgba(10,8,32,.97);box-shadow:0 18px 60px rgba(0,0,0,.6),0 0 34px rgba(5,217,232,.22);backdrop-filter:blur(18px)}
+.chat-popup .chat-head{padding:9px 12px}
+.chat-popup .chat-head h2{font-size:12px}
+.chat-popup .chat-head button{min-height:33px;padding:5px 10px;font-size:9px}
+.chat-popup .chat-state{padding:3px 12px 0;min-height:20px;font-size:10px}
+.chat-popup .chat-messages{max-height:115px;min-height:36px;padding:6px 12px;gap:5px}
+.chat-popup .chat-empty{padding:6px;font-size:11px}
+.chat-popup .chat-message{padding:5px 8px;border-radius:10px}
+.chat-popup .chat-meta{font-size:9px;margin-bottom:1px}
+.chat-popup .chat-text{font-size:12px}
+.chat-popup .chat-form{padding:8px;border-top:0;gap:7px}
+.chat-popup .chat-form input{min-height:42px;border-radius:10px;font-size:14px}
+.chat-popup .chat-form button{min-height:42px;border-radius:10px;font-size:10px}
+#progSummary{position:relative;display:block;padding-bottom:10px;touch-action:pan-y;user-select:none}
+.hold-caption{font:500 9px system-ui,sans-serif;letter-spacing:0;color:var(--mut);text-transform:none}
+#aiHoldBar{position:absolute;left:0;bottom:0;width:100%;height:3px;background:var(--neon);transform:scaleX(0);transform-origin:left;box-shadow:0 0 10px var(--neon);pointer-events:none}
+#progSummary.ai-holding{color:var(--hot)}
+#progSummary.ai-holding #aiHoldBar{background:var(--hot);box-shadow:0 0 12px var(--hot)}
+.ai-lab-box{width:min(100%,520px);text-align:left}
+.ai-lab-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:8px}
+.ai-lab-head h2{margin:0}
+.ai-lab-head button{min-height:36px;padding:6px 10px;font-size:9px}
+.ai-lab-intro{font-size:13px;margin:0 0 12px}
+.ai-stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:12px 0}
+.ai-stat{display:grid;gap:5px;min-width:0;padding:10px;border:1px solid rgba(5,217,232,.25);border-radius:11px;background:rgba(5,217,232,.055)}
+.ai-stat span{font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut)}
+.ai-stat strong{font:800 21px var(--disp);color:var(--neon);overflow-wrap:anywhere}
+.ai-capabilities{display:grid;gap:4px;padding:10px 12px;border:1px solid var(--bd);border-radius:11px;background:rgba(94,60,255,.08)}
+.ai-capabilities p{margin:0;color:var(--tx);font-size:12px}
+.ai-lab-box .note{font-size:12px;line-height:1.45}
+@media(max-width:480px){
+  .hold-caption{display:block;margin-top:5px}
+  .quick-reactions{right:8px;bottom:calc(8px + env(safe-area-inset-bottom));}
+  .game-dock{left:8px;bottom:calc(8px + env(safe-area-inset-bottom))}
+  .chat-popup{inset:auto 8px calc(8px + env(safe-area-inset-bottom))}
+  .ai-stats{gap:6px}
+  .ai-stat{padding:8px}
+  .ai-stat strong{font-size:18px}
+}
