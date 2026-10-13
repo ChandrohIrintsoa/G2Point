@@ -139,11 +139,38 @@ function saveAI(a){
   jset('g2p.ai',a);cloudPersistAI(a);
 }
 function aiPick(){aiP=daily?null:(()=>{const a=loadAI();return{w:a.w,book:a.book,lvl}})()}
-/* Les parties servent uniquement au suivi des résultats : elles n'enseignent plus de coups à l'IA. */
+/* Apprentissage combiné : parties réelles, simulations autonomes et leçons du joueur. */
 function learnFromGame(win,r){
   if(!ai||daily||mode!=='local'||!aiP||lvl<=0)return;
-  const a=loadAI();a.st=a.st||{g:0,w:0};a.st.g++;if(r==='loss')a.st.w++;saveAI(a);
+  const a=loadAI();a.st=a.st||{g:0,w:0};
+  E.learn(a.book,moves,W,H,N,TM,win);
+  a.st.g++;if(r==='win')a.st.w++;
+  a.games=(a.games||0)+1;saveAI(a);aiPick();
 }
+let autoSimCount=0,autoSimBusy=false;
+function runBackgroundAISimulation(){
+  if(autoSimBusy||autoSimCount>=30||document.hidden||(ready&&mode==='local'&&S&&!over()))return;
+  autoSimBusy=true;
+  try{
+    const a=loadAI(),sw=11,sh=15,sim=E.create(sw,sh,2,false),played=[];
+    let plies=0;
+    while(plies<36&&sim.free>0){
+      const params={w:a.w,book:a.book,lvl:Math.max(0,Math.min(2,lvl||1))};
+      const move=E.aiMove(sim,E.rng(Date.now()+plies*7919+autoSimCount*104729),params);
+      if(!move||!E.legal(sim,move[0],move[1]))break;
+      played.push(move);if(!E.apply(sim,move))break;plies++;
+    }
+    if(played.length>=4){
+      const best=Math.max(...sim.sc),winners=sim.sc.map((v,i)=>v===best?i:-1).filter(i=>i>=0);
+      E.learn(a.book,played,sw,sh,2,false,winners);
+      a.games=(a.games||0)+1;a.simulations=(a.simulations||0)+1;
+      saveAI(a);autoSimCount++;
+    }
+  }catch(e){console.warn('Simulation IA interrompue',e)}
+  finally{autoSimBusy=false}
+}
+setInterval(runBackgroundAISimulation,60000);
+
 /* Libellés, résultat, historique, partage */
 const label=i=>ai&&mode=='local'&&i==1?'IA':NAMES[i];
 function result(){ /* un abandon exclut l'équipe fautive du classement */
@@ -715,7 +742,7 @@ function renderAILab(){
   const a=loadAI(),patterns=Object.keys(a.book||{}).length,weights=(a.w||[]).length,played=a.st||{g:0,w:0};
   const rate=played.g?Math.round(100*(played.w||0)/played.g):0;
   const qi=Math.max(80,Math.min(180,100+Math.round(Math.log2(1+patterns)*5)+Math.round((rate-50)/5)));
-  const stats=[['QI de jeu',qi+' pts'],['Leçons manuelles',a.manualLessons||0],['Motifs mémorisés',patterns],['Paramètres stratégiques',weights],['Victoires IA',rate+' %']];
+  const stats=[['QI de jeu',qi+' pts'],['Leçons manuelles',a.manualLessons||0],['Parties apprises',a.st?.g||0],['Simulations autonomes',a.simulations||0],['Motifs mémorisés',patterns],['Paramètres stratégiques',weights],['Victoires IA',rate+' %']];
   const host=$('aiStats');host.replaceChildren();
   for(const [label,value] of stats){const card=document.createElement('div'),name=document.createElement('span'),v=document.createElement('strong');card.className='ai-stat';name.textContent=label;v.textContent=value;card.append(name,v);host.append(card)}
   drawAITrainingBoard();
