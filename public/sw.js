@@ -1,5 +1,5 @@
 /* Cache hors-ligne : réponse immédiate depuis le cache, mise à jour en arrière-plan. */
-const V='g2p-v5',A=['./','css/style.css','js/engine.js','js/puzzles.js','js/app.js','js/firebase-config.js','manifest.webmanifest','icon.svg'];
+const V='g2p-v5',A=['./','css/style.css','js/engine.js','js/puzzles.js','js/cloud-config.js','js/app.js','js/firebase-config.js','manifest.webmanifest','icon.svg'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(V).then(c=>c.addAll(A)).then(()=>self.skipWaiting()))});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x!==V).map(x=>caches.delete(x)))).then(()=>self.clients.claim()))});
 self.addEventListener('fetch',e=>{

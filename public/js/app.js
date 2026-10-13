@@ -195,7 +195,7 @@ function record(){
   const r=mine<0?'':w.includes(mine)?(w.length>1?'draw':'win'):'loss';
   const h=loadHist();h.unshift({t:Date.now(),k:daily?'daily':ai?'ai':mode,w:W,h:H,sc:S.sc.slice(),r,d:daily||undefined});
   try{localStorage.setItem('g2p.hist',JSON.stringify(h.slice(0,30)))}catch(e){}
-  learnFromGame(w,r);progress(r,mine);renderHist();renderProg();track('game_end',{mode:daily?'daily':ai?'ai':mode,players:N,result:r||'none'});
+  learnFromGame(w,r);cloudQueue(r);progress(r,mine);renderHist();renderProg();track('game_end',{mode:daily?'daily':ai?'ai':mode,players:N,result:r||'none'});
 }
 function renderHist(){
   const h=loadHist(),box=$('hist');if(!h.length)return;
@@ -784,6 +784,42 @@ function tutoClose(){$('tuto').hidden=true;try{localStorage.setItem('g2p.tuto','
 $('tutoNext').onclick=()=>tutoI>=TUTO.length-1?tutoClose():tutoShow(tutoI+1);
 $('tutoSkip').onclick=tutoClose;$('bTuto').onclick=tutoOpen;
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){$('win').hidden=true;if(!$('tuto').hidden)tutoClose()}});
+
+/* ===== Cloud : Cloudflare Worker + D1 (archives des parties + mémoire de l'IA partagée) ===== */
+const CLOUD_PULL_MS=3e5,OUTBOX_MAX=30;
+const cloudUrl=()=>((window.G2_CLOUD&&window.G2_CLOUD.url)||'').replace(/\/$/,'');
+const devId=()=>{let v='';try{v=localStorage.getItem('g2p.pid')||''}catch(e){}if(!v){v='d'+(crypto.randomUUID?crypto.randomUUID().replace(/-/g,''):String(Math.random()).slice(2)+Date.now());try{localStorage.setItem('g2p.pid',v)}catch(e){}}return v};
+let flushing=false,lastPull=0;
+/* Mise en file d'attente : si le réseau est coupé, la partie est renvoyée plus tard (une seule fois par appareil côté serveur) */
+function cloudQueue(r){
+  if(!cloudUrl()||moves.length<6)return;
+  if(mode=='online'&&me!==0)return; /* en ligne : un seul joueur envoie la partie, pour ne pas la faire apprendre deux fois */
+  const id=mode=='online'?code:'g'+(crypto.randomUUID?crypto.randomUUID().replace(/-/g,''):String(Math.random()).slice(2)+Date.now());
+  const rec={gameId:id,playerId:devId(),w:W,h:H,n:N,tm:!!TM,mode:daily?'daily':ai?'ai':mode=='online'?'online':'local',result:['win','loss','draw'].includes(r)?r:'na',moves:moves.map(m=>[m[0],m[1]])};
+  jset('g2p.outbox',[...jget('g2p.outbox',[]),rec].slice(-OUTBOX_MAX));cloudFlush();
+}
+async function cloudFlush(){
+  if(!cloudUrl()||flushing)return;flushing=true;
+  try{
+    let q=jget('g2p.outbox',[]);
+    while(q.length){
+      const res=await fetch(cloudUrl()+'/api/archive',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(q[0])});
+      if(res.status===429||res.status>=500)break;     /* réessayer plus tard */
+      q=q.slice(1);jset('g2p.outbox',q);               /* envoyée, déjà connue ou définitivement refusée */
+    }
+  }catch(e){/* hors-ligne : la file est conservée */}finally{flushing=false}
+}
+/* Récupère la mémoire de l'IA partagée (toutes les parties de tous les appareils) et la fusionne avec la mémoire locale */
+async function cloudPull(force){
+  if(!cloudUrl()||(!force&&Date.now()-lastPull<CLOUD_PULL_MS))return;lastPull=Date.now();
+  try{
+    const res=await fetch(cloudUrl()+'/api/ai');if(!res.ok)return;
+    const rm=await res.json(),a=loadAI();
+    if(rm&&rm.book&&typeof rm.book==='object'){a.book={...a.book,...rm.book};a.games=Math.max(a.games,+rm.games||0);saveAI(a)} /* en cas de conflit, la version partagée gagne */
+  }catch(e){}
+}
+setTimeout(()=>{cloudFlush();cloudPull(true)},2500);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden){cloudFlush();cloudPull()}});
 
 /* ===== Initialisation des nouveautés ===== */
 try{const l=localStorage.getItem('g2p.lvl');if(l!=null)$('lvl').value=l}catch(e){}

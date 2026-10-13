@@ -2,7 +2,9 @@
   "name": "g2point",
   "private": true,
   "scripts": {
-    "test": "node --test tests/engine.test.js"
+    "test": "node --test tests/*.test.js",
+    "cf:schema": "wrangler d1 execute g2point --remote --file=cloudflare/schema.sql",
+    "cf:deploy": "wrangler deploy --config cloudflare/wrangler.toml"
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^3.0.4",

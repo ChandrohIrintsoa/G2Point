@@ -1,0 +1,14 @@
+name = "g2point-api"
+main = "worker.mjs"
+compatibility_date = "2025-01-01"
+
+[vars]
+# Origines autorisées (CORS), séparées par des virgules : votre site Firebase Hosting.
+ALLOWED_ORIGINS = "https://VOTRE-PROJET.web.app,https://VOTRE-PROJET.firebaseapp.com"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "g2point"
+database_id = "COLLEZ-ICI-L-ID-DE-LA-BASE-D1"
+
+# Secret à définir (ne jamais le mettre dans ce fichier) :  npx wrangler secret put IP_SALT
