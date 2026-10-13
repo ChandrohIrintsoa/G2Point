@@ -139,7 +139,7 @@ function loadAI(){const a=jget('g2p.ai',null);return a&&a.w&&a.book?a:AIDEF()}
 function saveAI(a){
   const ks=Object.keys(a.book);
   if(ks.length>1500){ks.sort((p,q)=>a.book[q][0]-a.book[p][0]);const nb={};ks.slice(0,1200).forEach(k=>nb[k]=a.book[k]);a.book=nb}
-  jset('g2p.ai',a);
+  jset('g2p.ai',a);cloudPersistAI(a);
 }
 /* Le défi du jour utilise toujours l'IA de base (même adversaire pour tout le monde). */
 function aiPick(){aiP=daily?null:(()=>{const a=loadAI();return{w:a.c||a.w,book:a.book,ch:!!a.c,lvl}})()}
@@ -489,7 +489,7 @@ const readOpts=()=>{
   lvl=+$('lvl').value||0;try{localStorage.setItem('g2p.lvl',String(lvl))}catch(e){}puz=-1;puzState='';moves=[];S=null;ended=false;wasOver=false;resetMatchFx();
 };
 $('np').onchange=()=>{$('lvlRow').hidden=$('np').value!=='ai'};
-$('nickname').onchange=()=>{try{localStorage.setItem('g2p.nickname',getNickname())}catch(e){}};
+$('nickname').onchange=()=>{try{localStorage.setItem('g2p.nickname',getNickname())}catch(e){}cloudSyncProfile()};
 try{$('nickname').value=localStorage.getItem('g2p.nickname')||''}catch(e){}
 $('bLocal').onclick=()=>{readOpts();aiPick();mode='local';ready=true;me=-1;code='';gameData=null;renderOnlinePanel({n:N});show(true);upd()};
 async function createGame(same){
@@ -698,7 +698,7 @@ function progress(r,mine){
     unlock(P,'daily');const dd=jget('g2p.dd',[]);
     if(!dd.includes(daily)){dd.push(daily);jset('g2p.dd',dd);for(const t of THEMES)if(t.need==dd.length&&t.need>0)newAch.push('🎨 Thème « '+t.name+' » débloqué')}
   }
-  jset('g2p.prog',P);
+  jset('g2p.prog',P);cloudSyncProgress(P);
   if(newAch.length)note(newAch.join(' · '));
 }
 function renderProg(){
@@ -865,7 +865,7 @@ function startPuzzle(i){
 }
 function puzSolved(i){
   const p=puzs[i];if(!p.done){p.done=true;const n=jget('g2p.puzn',0)+1;jset('g2p.puzn',n);
-    if(n>=5){const P=loadProg();newAch=[];unlock(P,'puz');jset('g2p.prog',P);if(newAch.length)note(newAch.join(' · '))}}
+    if(n>=5){const P=loadProg();newAch=[];unlock(P,'puz');jset('g2p.prog',P);cloudSyncProgress(P);if(newAch.length)note(newAch.join(' · '))}}
   track('puzzle_solved',{intel:p.intel});renderPuz();
 }
 $('bPuz').onclick=()=>{const b=$('puzList');b.hidden=!b.hidden;renderPuz()};
@@ -954,6 +954,55 @@ async function cloudFlush(){
   }catch(e){/* hors-ligne : la file est conservée */}finally{flushing=false}
 }
 /* Récupère la mémoire de l'IA partagée (toutes les parties de tous les appareils) et la fusionne avec la mémoire locale */
+let cloudAiTimer=0;
+async function cloudRequest(path,method='GET',body=null){
+  if(!cloudUrl())return null;
+  const opts={method,headers:{'Content-Type':'application/json'}};
+  if(body)opts.body=JSON.stringify(body);
+  const res=await fetch(cloudUrl()+path,opts);
+  if(!res.ok)throw new Error('Cloudflare '+res.status);
+  return res.status===204?null:res.json();
+}
+async function cloudSyncProfile(){
+  if(!cloudUrl())return;
+  try{await cloudRequest('/api/profile','PUT',{playerId:devId(),nickname:getNickname()})}catch(e){}
+}
+async function cloudSyncProgress(P=loadProg()){
+  if(!cloudUrl())return;
+  try{await cloudRequest('/api/progress','PUT',{playerId:devId(),progress:P})}catch(e){}
+}
+function cloudPersistAI(A){
+  if(!cloudUrl())return;
+  clearTimeout(cloudAiTimer);
+  cloudAiTimer=setTimeout(async()=>{
+    try{await cloudRequest('/api/ai/player','PUT',{playerId:devId(),weights:A.c||A.w,games:A.games||0,wins:A.st&&A.st.w||0})}catch(e){}
+  },1200);
+}
+async function cloudBootstrap(){
+  if(!cloudUrl())return;
+  const id=encodeURIComponent(devId());
+  try{
+    const [pr,pg,aiRemote]=await Promise.all([
+      cloudRequest('/api/profile?playerId='+id),
+      cloudRequest('/api/progress?playerId='+id),
+      cloudRequest('/api/ai/player?playerId='+id)
+    ]);
+    if(pr&&pr.profile&&!localStorage.getItem('g2p.nickname')){
+      $('nickname').value=pr.profile.nickname||'';
+    }else await cloudSyncProfile();
+    if(pg&&pg.progress){
+      if(!localStorage.getItem('g2p.prog'))jset('g2p.prog',pg.progress);
+      else await cloudSyncProgress();
+    }else await cloudSyncProgress();
+    if(aiRemote&&aiRemote.training){
+      const A=loadAI(),T=aiRemote.training;
+      if(Array.isArray(T.weights)&&T.weights.length===6&&(+T.games||0)>A.games){
+        A.w=T.weights;A.games=+T.games||0;A.st.w=+T.wins||0;jset('g2p.ai',A);
+      }else cloudPersistAI(A);
+    }else cloudPersistAI(loadAI());
+    renderProg();
+  }catch(e){}
+}
 async function cloudPull(force){
   if(!cloudUrl()||(!force&&Date.now()-lastPull<CLOUD_PULL_MS))return;lastPull=Date.now();
   try{
@@ -962,7 +1011,7 @@ async function cloudPull(force){
     if(rm&&rm.book&&typeof rm.book==='object'){a.book={...a.book,...rm.book};a.games=Math.max(a.games,+rm.games||0);saveAI(a)} /* en cas de conflit, la version partagée gagne */
   }catch(e){}
 }
-setTimeout(()=>{cloudFlush();cloudPull(true)},2500);
+setTimeout(()=>{cloudFlush();cloudPull(true);cloudBootstrap()},2500);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden){cloudFlush();cloudPull()}});
 
 /* ===== Initialisation des nouveautés ===== */

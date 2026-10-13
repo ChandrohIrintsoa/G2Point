@@ -11,7 +11,7 @@ const ID_RE=/^[A-Za-z0-9_-]{6,64}$/;
 
 const cors=(req,env)=>{
   const o=req.headers.get('Origin')||'',ok=(env.ALLOWED_ORIGINS||'').split(',').map(s=>s.trim()).filter(Boolean);
-  return ok.includes(o)?{'Access-Control-Allow-Origin':o,'Vary':'Origin','Access-Control-Allow-Methods':'GET,POST,OPTIONS','Access-Control-Allow-Headers':'Content-Type','Access-Control-Max-Age':'86400'}:null;
+  return ok.includes(o)?{'Access-Control-Allow-Origin':o,'Vary':'Origin','Access-Control-Allow-Methods':'GET,POST,PUT,OPTIONS','Access-Control-Allow-Headers':'Content-Type','Access-Control-Max-Age':'86400'}:null;
 };
 const json=(data,status,h)=>new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json','Cache-Control':'no-store',...h}});
 
@@ -36,6 +36,74 @@ export function validate(b){
 
 const getStat=async(db,k)=>{const r=await db.prepare('SELECT statistic_value v FROM game_statistics WHERE statistic_key=?').bind(k).first();return r?r.v:null};
 const setStat=(db,k,v)=>db.prepare('INSERT INTO game_statistics(statistic_key,statistic_value,updated_at) VALUES(?,?,unixepoch()) ON CONFLICT(statistic_key) DO UPDATE SET statistic_value=excluded.statistic_value,updated_at=unixepoch()').bind(k,v);
+
+const validPlayerId=v=>typeof v==='string'&&ID_RE.test(v);
+const readJson=async(req,max=32768)=>{
+  const raw=await req.text();
+  if(raw.length>max)return{error:413};
+  try{return{value:JSON.parse(raw)}}catch{return{error:400}}
+};
+const safeObject=v=>v&&typeof v==='object'&&!Array.isArray(v);
+const getPlayerId=(req,url)=>url.searchParams.get('playerId')||'';
+async function handleProfile(req,env,h){
+  const db=env.DB;
+  if(req.method==='GET'){
+    const id=getPlayerId(req,new URL(req.url));
+    if(!validPlayerId(id))return json({error:'identifiant invalide'},400,h);
+    const row=await db.prepare('SELECT nickname,created_at,updated_at FROM player_profiles WHERE player_id=?').bind(id).first();
+    return json({profile:row||null},200,h);
+  }
+  if(req.method==='PUT'){
+    const p=await readJson(req,4096);if(p.error)return json({error:'requête invalide'},p.error,h);
+    const b=p.value||{};
+    if(!validPlayerId(b.playerId)||typeof b.nickname!=='string')return json({error:'profil invalide'},422,h);
+    const nickname=b.nickname.replace(/[<>\u0000-\u001f]/g,'').trim().slice(0,20)||'Joueur';
+    await db.prepare('INSERT INTO player_profiles(player_id,nickname,created_at,updated_at) VALUES(?,?,unixepoch(),unixepoch()) ON CONFLICT(player_id) DO UPDATE SET nickname=excluded.nickname,updated_at=unixepoch()').bind(b.playerId,nickname).run();
+    return json({ok:true,nickname},200,h);
+  }
+  return json({error:'méthode refusée'},405,h);
+}
+async function handleProgress(req,env,h){
+  const db=env.DB;
+  if(req.method==='GET'){
+    const id=getPlayerId(req,new URL(req.url));
+    if(!validPlayerId(id))return json({error:'identifiant invalide'},400,h);
+    const row=await db.prepare('SELECT progress_json,updated_at FROM player_progress WHERE player_id=?').bind(id).first();
+    let progress=null;try{progress=row?JSON.parse(row.progress_json):null}catch{}
+    return json({progress,updatedAt:row?.updated_at||null},200,h);
+  }
+  if(req.method==='PUT'){
+    const p=await readJson(req,32768);if(p.error)return json({error:'requête invalide'},p.error,h);
+    const b=p.value||{};
+    if(!validPlayerId(b.playerId)||!safeObject(b.progress))return json({error:'progression invalide'},422,h);
+    const allowed=['streak','best','elo','ach','h2h'];
+    if(Object.keys(b.progress).some(k=>!allowed.includes(k)))return json({error:'champs refusés'},422,h);
+    const payload=JSON.stringify(b.progress);
+    await db.prepare('INSERT INTO player_progress(player_id,progress_json,updated_at) VALUES(?,?,unixepoch()) ON CONFLICT(player_id) DO UPDATE SET progress_json=excluded.progress_json,updated_at=unixepoch()').bind(b.playerId,payload).run();
+    return json({ok:true,updatedAt:Math.floor(Date.now()/1000)},200,h);
+  }
+  return json({error:'méthode refusée'},405,h);
+}
+async function handlePlayerAi(req,env,h){
+  const db=env.DB;
+  if(req.method==='GET'){
+    const id=getPlayerId(req,new URL(req.url));
+    if(!validPlayerId(id))return json({error:'identifiant invalide'},400,h);
+    const row=await db.prepare('SELECT weights_json,games,wins,updated_at FROM player_ai WHERE player_id=?').bind(id).first();
+    let weights=null;try{weights=row?JSON.parse(row.weights_json):null}catch{}
+    return json({training:row?{weights,games:row.games,wins:row.wins,updatedAt:row.updated_at}:null},200,h);
+  }
+  if(req.method==='PUT'){
+    const p=await readJson(req,4096);if(p.error)return json({error:'requête invalide'},p.error,h);
+    const b=p.value||{},weights=b.weights;
+    if(!validPlayerId(b.playerId)||!Array.isArray(weights)||weights.length!==6||weights.some(v=>!Number.isFinite(v)||v<0||v>100))return json({error:'paramètres IA invalides'},422,h);
+    const games=Math.max(0,Math.min(10000000,Math.floor(Number(b.games)||0)));
+    const wins=Math.max(0,Math.min(games,Math.floor(Number(b.wins)||0)));
+    await db.prepare('INSERT INTO player_ai(player_id,weights_json,games,wins,updated_at) VALUES(?,?,?,?,unixepoch()) ON CONFLICT(player_id) DO UPDATE SET weights_json=excluded.weights_json,games=MAX(player_ai.games,excluded.games),wins=MAX(player_ai.wins,excluded.wins),updated_at=unixepoch()').bind(b.playerId,JSON.stringify(weights),games,wins).run();
+    return json({ok:true},200,h);
+  }
+  return json({error:'méthode refusée'},405,h);
+}
 
 function trim(book){
   const ks=Object.keys(book);if(ks.length<=BOOK_MAX)return book;
@@ -74,6 +142,9 @@ export default{
     try{
       if(url.pathname==='/api/archive'&&req.method==='POST')return await handleArchive(req,env,h);
       if(url.pathname==='/api/ai'&&req.method==='GET')return await handleAi(env,h);
+      if(url.pathname==='/api/profile')return await handleProfile(req,env,h);
+      if(url.pathname==='/api/progress')return await handleProgress(req,env,h);
+      if(url.pathname==='/api/ai/player')return await handlePlayerAi(req,env,h);
       return json({error:'introuvable'},404,h);
     }catch(e){return json({error:'erreur serveur'},500,h)}
   }
