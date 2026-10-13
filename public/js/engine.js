@@ -90,6 +90,16 @@ function strategyKey(s,x,y,t){
 function record(book,key,gain,won){
   const e=book[key]||(book[key]=[0,0,0]);e[0]++;e[1]+=gain;if(won)e[2]++;
 }
+/* Enregistre une réponse choisie par l'entraîneur dans le motif et le contexte stratégique observés. */
+function teach(book,s,x,y,t=0,quality=1){
+  if(!legal(s,x,y))return false;
+  const sign=quality<0?-1:1;
+  for(const key of [patKey(s,x,y,t),strategyKey(s,x,y,t)]){
+    const e=book[key]||(book[key]=[0,0,0]);
+    e[0]+=3;e[1]+=sign*6;if(sign>0)e[2]+=3;
+  }
+  return true;
+}
 /* Rejoue une partie et enregistre, pour chaque coup, [fois joué, gain cumulé, victoires du joueur] */
 function learn(book,mv,w,h,n,tm,win){
   const s=create(w,h,n,tm);
@@ -170,6 +180,6 @@ function genPuzzle(rnd=Math.random,intel=0,P,maxMs=1500){
   }
   return null;
 }
-const api={genPuzzle,puzzleSpec,create,scan,apply,legal,links,tmOf,grid,clone,rng,aiMove,learn,patKey,strategyKey,mutate,DEFAULT_W,LEVELS};
+const api={genPuzzle,puzzleSpec,create,scan,apply,legal,links,tmOf,grid,clone,rng,aiMove,learn,teach,patKey,strategyKey,mutate,DEFAULT_W,LEVELS};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.G2Engine=api;
 })(typeof window!=='undefined'?window:globalThis);

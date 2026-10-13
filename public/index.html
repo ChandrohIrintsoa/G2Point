@@ -64,8 +64,9 @@
     <div id="liveList" class="hist"></div>
   </details>
   <details>
-    <summary id="progSummary">Progression et succès <span class="hold-caption">· Maintenir 15 s pour le laboratoire IA</span><span id="aiHoldBar"></span></summary>
+    <summary id="progSummary">Progression et succès</summary>
     <div id="prog" class="hist"></div>
+    <button id="aiLabLaunch" class="ai-lab-launch" type="button">Laboratoire IA · entraînement manuel</button>
   </details>
   <details>
     <summary>Historique et statistiques</summary>
@@ -139,12 +140,40 @@
 
 <div id="aiLab" class="chat-modal" hidden role="dialog" aria-modal="true" aria-labelledby="aiLabTitle">
   <section class="win-box ai-lab-box">
-    <header class="ai-lab-head"><div><p class="tuto-step">Accès avancé · maintien 15 secondes</p><h2 id="aiLabTitle">Laboratoire de l’IA</h2></div><button id="aiLabClose" type="button" aria-label="Fermer le laboratoire">Fermer</button></header>
-    <p class="ai-lab-intro">Analysez la mémoire stratégique de l’IA et lancez un entraînement comparatif.</p>
+    <header class="ai-lab-head"><div><p class="tuto-step">ENTRAÎNEMENT MANUEL ASSISTÉ</p><h2 id="aiLabTitle">Laboratoire de l’IA</h2></div><button id="aiLabClose" type="button" aria-label="Fermer le laboratoire">Fermer</button></header>
+    <p class="ai-lab-intro">Compose une position sur le terrain, choisis le plan à travailler, demande une analyse, puis montre à l’IA le coup que tu considères comme la bonne réponse.</p>
     <div id="aiStats" class="ai-stats"></div>
-    <div id="aiCapabilities" class="ai-capabilities"></div>
-    <p id="aiTrainStatus" class="note" role="status" aria-live="polite">L’IA peut apprendre à partir des parties et des simulations.</p>
-    <div class="stack"><button id="aiTrain" class="pri" type="button">Entraîner l’IA maintenant</button><button id="aiLabDone" type="button">Terminer</button></div>
+    <section class="ai-training" aria-label="Terrain d’entraînement manuel">
+      <div class="ai-training-controls">
+        <label for="aiBrush">Action sur le terrain
+          <select id="aiBrush">
+            <option value="1">Placer les points de l’IA</option>
+            <option value="2">Placer les points adverses</option>
+            <option value="choice">Choisir le coup à enseigner</option>
+            <option value="erase">Effacer un point</option>
+          </select>
+        </label>
+        <label for="aiGoal">Plan à travailler
+          <select id="aiGoal">
+            <option value="attack">Attaquer / préparer une capture</option>
+            <option value="defend">Défendre / bloquer une menace</option>
+            <option value="approach">Atteindre une zone</option>
+            <option value="chain">Renforcer une chaîne</option>
+          </select>
+        </label>
+      </div>
+      <div class="ai-board-frame">
+        <canvas id="aiBoard" width="550" height="750" role="img" aria-label="Terrain d’entraînement de 11 colonnes sur 15 lignes. Touchez les intersections pour placer des points ou choisir un coup."></canvas>
+      </div>
+      <p id="aiCoach" class="ai-coach" aria-live="polite">Place les points de chaque camp. Sélectionne ensuite « Analyser la position » pour voir la réponse de l’IA.</p>
+      <div class="ai-training-actions">
+        <button id="aiAnalyze" type="button">Analyser la position</button>
+        <button id="aiTeach" class="pri" type="button">Enseigner le coup choisi</button>
+        <button id="aiClear" type="button">Effacer le terrain</button>
+      </div>
+    </section>
+    <p id="aiTrainStatus" class="note ai-brand" role="status" aria-live="polite">Made by ChaIr.</p>
+    <div class="stack"><button id="aiLabDone" type="button">Terminer</button></div>
   </section>
 </div>
 

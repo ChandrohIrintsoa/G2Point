@@ -3,9 +3,9 @@ const E=window.G2Engine,PZ=window.G2Puzzles;
 /* Constantes nommées (plus de nombres magiques dans le rendu et la logique) */
 const TAU=Math.PI*2,STONE_R=.3,LINE_W=.13,LAST_RING=3,FX_MS=600,POP_MS=380,STAGGER_MS=60,MAX_STAGGER=20,WIN_DELAY=900,
   CHAT_BADGE_MAX=99,CHAT_SCROLL_SLACK=70,CHAT_TOAST_MS=4200,IDLE_FORFEIT_MS=12e4,AI_DELAY_MS=380,DAILY_STONES=6,MAX_LIVE=5,PAN_PX=10,
-  ZOOM_MIN=1,ZOOM_MAX=4,ZOOM_STEP=1.18,AUTO_EVERY_MS=45000,AUTO_MAX_GAMES=40,PUZ_RETRY_MS=1300,ELO_K=24,LOBBY_TTL_MS=36e5,LOBBY_MAX_AGE_MS=6e5,CHAT_TTL_MS=24*60*60*1000,
+  ZOOM_MIN=1,ZOOM_MAX=4,ZOOM_STEP=1.18,PUZ_RETRY_MS=1300,ELO_K=24,LOBBY_TTL_MS=36e5,LOBBY_MAX_AGE_MS=6e5,CHAT_TTL_MS=24*60*60*1000,
   THEMES=[{id:'neon',name:'Néon',need:0},{id:'aurore',name:'Aurore',need:1},{id:'ambre',name:'Ambre',need:3},{id:'mono',name:'Monochrome',need:7}];
-let puz=-1,puzState='',zoom=1,prevSc=null,prevCombo=0,pop=null,winTimer=0,lvl=1,autoBusy=false,autoCount=0,lobbyCode='',an=null,newAch=[],pan=null;
+let puz=-1,puzState='',zoom=1,prevSc=null,prevCombo=0,pop=null,winTimer=0,lvl=1,lobbyCode='',an=null,newAch=[],pan=null;
 const jget=(k,d)=>{try{const v=JSON.parse(localStorage.getItem(k));return v==null?d:v}catch(e){return d}},jset=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
 const track=(n,p)=>{try{an&&an.logEvent(n,p)}catch(e){}};
 let W=17,H=23,N=2,TM=false,mode='',moves=[],me=-1,code='',ref=null,unsub=null,unsubChat=null,db=null,auth=null,cid='',authReady=false,ended=false,ready=true,filled=0,hover=null,S=null,cs=20,gameData=null,chatUnread=0,firstChatSnapshot=true,raf=0,COL=null,dirty=true,LC=null,fx=null,wasOver=false,rematchCode='',endSent='',aiP=null,ai=false,daily='',aiTimer=0,chatRows=[],lastSend=0,kb=[0,0],snd=(()=>{try{return localStorage.getItem('g2p.snd')!=='0'}catch(e){return true}})();
@@ -130,58 +130,20 @@ function paint(){
 const draw=()=>{raf||(raf=requestAnimationFrame(()=>{raf=0;paint()}))}; /* au plus un rendu par image */
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{COL=null;dirty=true;draw()});
 
-/* IA évolutive : mémoire de motifs qui copie les techniques vues dans TOUS les matchs terminés
-   (solo, duel, 3-4 joueurs, équipes, en ligne, défi du jour, y compris les coups de l'adversaire),
-   + poids d'évaluation optimisés par essais successifs (champion / challenger).
-   Tout est automatique : aucun bouton d'entraînement, l'IA s'améliore seule. */
-const AIDEF=()=>({w:E.DEFAULT_W.slice(),c:null,st:{g:0,w:0},book:{},games:0});
-function loadAI(){const a=jget('g2p.ai',null);return a&&a.w&&a.book?a:AIDEF()}
+/* IA : la mémoire ne progresse que par les leçons validées dans le laboratoire. */
+const AIDEF=()=>({w:E.DEFAULT_W.slice(),c:null,st:{g:0,w:0},book:{},games:0,manualLessons:0});
+function loadAI(){const a=jget('g2p.ai',null);return a&&a.w&&a.book?{...AIDEF(),...a}:AIDEF()}
 function saveAI(a){
   const ks=Object.keys(a.book);
   if(ks.length>1500){ks.sort((p,q)=>a.book[q][0]-a.book[p][0]);const nb={};ks.slice(0,1200).forEach(k=>nb[k]=a.book[k]);a.book=nb}
   jset('g2p.ai',a);cloudPersistAI(a);
 }
-/* Le défi du jour utilise toujours l'IA de base (même adversaire pour tout le monde). */
-function aiPick(){aiP=daily?null:(()=>{const a=loadAI();return{w:a.c||a.w,book:a.book,ch:!!a.c,lvl}})()}
+function aiPick(){aiP=daily?null:(()=>{const a=loadAI();return{w:a.w,book:a.book,lvl}})()}
+/* Les parties servent uniquement au suivi des résultats : elles n'enseignent plus de coups à l'IA. */
 function learnFromGame(win,r){
-  if(moves.length<6)return; /* toutes les parties comptent : plus de restriction de mode */
-  const a=loadAI();E.learn(a.book,moves,W,H,N,TM,win);a.games++;
-  if(ai&&!daily&&aiP&&mode=='local'&&lvl>0){ /* r = résultat du joueur humain */
-    const aiOk=r!='win';a.st.g++;a.st.w+=r=='loss'?1:0;
-    if(aiP.ch){if(aiOk)a.w=a.c;a.c=null}          /* le challenger ne perd pas : il devient champion */
-    if(!aiOk&&!a.c)a.c=E.mutate(a.w,Math.random);  /* l'IA a perdu : elle teste une variante */
-  }
-  saveAI(a);
+  if(!ai||daily||mode!=='local'||!aiP||lvl<=0)return;
+  const a=loadAI();a.st=a.st||{g:0,w:0};a.st.g++;if(r==='loss')a.st.w++;saveAI(a);
 }
-async function selfPlay(PA,PB){
-  const s=E.create(11,15,2,false),mv=[];
-  while(s.free>0&&mv.length<90){
-    const m=E.aiMove(s,Math.random,s.cur?PB:PA);if(!m)break;
-    E.apply(s,m);mv.push(m);if(mv.length%4==0)await new Promise(r=>setTimeout(r));
-  }
-  return{sc:s.sc,moves:mv};
-}
-/* Auto-apprentissage en arrière-plan : quelques parties IA contre IA lorsque le menu est affiché.
-   Chaque résultat est fusionné dans la mémoire déjà sauvegardée (pas d'écrasement d'une partie réelle). */
-async function autoTrain(){
-  if(autoBusy||mode||document.hidden||$('menu').hidden||autoCount>=AUTO_MAX_GAMES)return;
-  autoBusy=true;
-  try{
-    const base=loadAI(),ch=E.mutate(base.w,Math.random),baseKey=JSON.stringify(base.w);let d=0;
-    for(const side of[0,1]){
-      if(mode||document.hidden||$('menu').hidden)return;
-      const a0=loadAI(),A={w:a0.w,book:a0.book,lvl:1},B={w:ch,book:a0.book,lvl:1};
-      const r=await selfPlay(side?A:B,side?B:A);autoCount++;
-      d+=side?r.sc[1]-r.sc[0]:r.sc[0]-r.sc[1]; /* + = la variante gagne (côté 0 : variante = Rouge ; côté 1 : variante = Bleu) */
-      const a=loadAI();E.learn(a.book,r.moves,11,15,2,false,r.sc[0]>r.sc[1]?[0]:r.sc[1]>r.sc[0]?[1]:[]);a.games++;
-      if(side&&d>0&&JSON.stringify(a.w)==baseKey)a.w=ch; /* la variante qui bat le champion le remplace */
-      saveAI(a);
-    }
-  }finally{autoBusy=false}
-}
-setInterval(()=>{'requestIdleCallback' in window?requestIdleCallback(autoTrain,{timeout:8000}):autoTrain()},AUTO_EVERY_MS);
-setTimeout(autoTrain,6000);
-
 /* Libellés, résultat, historique, partage */
 const label=i=>ai&&mode=='local'&&i==1?'IA':NAMES[i];
 function result(){ /* un abandon exclut l'équipe fautive du classement */
@@ -713,55 +675,102 @@ function renderProg(){
   box.replaceChildren(...els);
 }
 
+const AI_TRAIN_W=11,AI_TRAIN_H=15,AI_TRAIN_PAD=25,AI_TRAIN_STEP=50;
+let aiTraining={stones:[],choice:null,suggestion:null};
+const aiGoalText={
+  attack:'Construis une chaîne qui menace les points adverses et prépare une capture.',
+  defend:'Repère le point qui protège ta chaîne ou bloque la fermeture d’une boucle adverse.',
+  approach:'Travaille le chemin vers la zone ciblée en gardant des connexions possibles.',
+  chain:'Renforce un groupe de points et prépare de nouvelles connexions.'
+};
+function aiTrainingState(){
+  const s=E.create(AI_TRAIN_W,AI_TRAIN_H,2,false);
+  for(const p of aiTraining.stones)s.o[p.y][p.x]=p.owner;
+  s.n=aiTraining.stones.length;s.free=AI_TRAIN_W*AI_TRAIN_H-s.n;s.cur=0;
+  return s;
+}
+function aiCoord(m){return String.fromCharCode(65+m[0])+(m[1]+1)}
+function drawAITrainingBoard(){
+  const c=$('aiBoard'),x=c.getContext('2d');if(!x)return;
+  x.clearRect(0,0,c.width,c.height);x.fillStyle='#080d20';x.fillRect(0,0,c.width,c.height);
+  x.strokeStyle='rgba(115,160,205,.22)';x.lineWidth=1.3;
+  for(let col=0;col<AI_TRAIN_W;col++){const px=AI_TRAIN_PAD+col*AI_TRAIN_STEP;x.beginPath();x.moveTo(px,AI_TRAIN_PAD);x.lineTo(px,AI_TRAIN_PAD+(AI_TRAIN_H-1)*AI_TRAIN_STEP);x.stroke()}
+  for(let row=0;row<AI_TRAIN_H;row++){const py=AI_TRAIN_PAD+row*AI_TRAIN_STEP;x.beginPath();x.moveTo(AI_TRAIN_PAD,py);x.lineTo(AI_TRAIN_PAD+(AI_TRAIN_W-1)*AI_TRAIN_STEP,py);x.stroke()}
+  x.strokeStyle='rgba(5,217,232,.32)';x.lineWidth=2;x.strokeRect(AI_TRAIN_PAD,AI_TRAIN_PAD,(AI_TRAIN_W-1)*AI_TRAIN_STEP,(AI_TRAIN_H-1)*AI_TRAIN_STEP);
+  for(const p of aiTraining.stones){
+    const px=AI_TRAIN_PAD+p.x*AI_TRAIN_STEP,py=AI_TRAIN_PAD+p.y*AI_TRAIN_STEP;
+    x.save();x.shadowBlur=15;x.shadowColor=p.owner===1?'#05d9e8':'#ff2a6d';
+    const g=x.createRadialGradient(px-5,py-6,2,px,py,17);
+    if(p.owner===1){g.addColorStop(0,'#d9ffff');g.addColorStop(.35,'#05d9e8');g.addColorStop(1,'#087f9c')}
+    else{g.addColorStop(0,'#ffe1ec');g.addColorStop(.35,'#ff2a6d');g.addColorStop(1,'#9d174d')}
+    x.fillStyle=g;x.beginPath();x.arc(px,py,14,0,Math.PI*2);x.fill();x.restore();
+  }
+  const mark=(m,color,r)=>{if(!m)return;const px=AI_TRAIN_PAD+m[0]*AI_TRAIN_STEP,py=AI_TRAIN_PAD+m[1]*AI_TRAIN_STEP;x.save();x.strokeStyle=color;x.lineWidth=3;x.shadowBlur=12;x.shadowColor=color;x.beginPath();x.arc(px,py,r,0,Math.PI*2);x.stroke();x.restore()};
+  mark(aiTraining.suggestion,'#ffd166',20);mark(aiTraining.choice,'#8cff98',24);
+  x.fillStyle='rgba(173,195,226,.7)';x.font='15px system-ui';x.textAlign='center';x.textBaseline='middle';
+  for(let col=0;col<AI_TRAIN_W;col++)x.fillText(String.fromCharCode(65+col),AI_TRAIN_PAD+col*AI_TRAIN_STEP,AI_TRAIN_PAD+(AI_TRAIN_H-1)*AI_TRAIN_STEP+18);
+  x.textAlign='right';for(let row=0;row<AI_TRAIN_H;row++)x.fillText(String(row+1),AI_TRAIN_PAD-12,AI_TRAIN_PAD+row*AI_TRAIN_STEP);
+}
 function renderAILab(){
   const a=loadAI(),patterns=Object.keys(a.book||{}).length,weights=(a.w||[]).length,played=a.st||{g:0,w:0};
-  const rate=played.g?Math.round(100*(played.w||0)/played.g):50;
+  const rate=played.g?Math.round(100*(played.w||0)/played.g):0;
   const qi=Math.max(80,Math.min(180,100+Math.round(Math.log2(1+patterns)*5)+Math.round((rate-50)/5)));
-  const stats=[['QI de jeu',qi+' pts'],['Parties apprises',a.games||0],['Motifs mémorisés',patterns],['Paramètres stratégiques',weights],['Taux de victoire IA',rate+' %']];
+  const stats=[['QI de jeu',qi+' pts'],['Leçons manuelles',a.manualLessons||0],['Motifs mémorisés',patterns],['Paramètres stratégiques',weights],['Victoires IA',rate+' %']];
   const host=$('aiStats');host.replaceChildren();
   for(const [label,value] of stats){const card=document.createElement('div'),name=document.createElement('span'),v=document.createElement('strong');card.className='ai-stat';name.textContent=label;v.textContent=value;card.append(name,v);host.append(card)}
-  const cap=$('aiCapabilities'),items=[
-    'Mémorise les configurations et séquences de coups observées.',
-    'Évalue les positions avec '+weights+' paramètres stratégiques.',
-    a.c?'Teste une variante challenger face à son champion.':'Peut générer une variante pour défier son champion.',
-    'S’entraîne par simulation sur un terrain de 11 × 15.'
-  ];
-  cap.replaceChildren();for(const item of items){const line=document.createElement('p');line.textContent=item;cap.append(line)}
+  drawAITrainingBoard();
 }
-function openAILab(){renderAILab();$('aiLab').hidden=false;$('aiTrainStatus').textContent='Le QI de jeu est un indicateur interne basé sur la mémoire et les résultats de l’IA, pas un test psychométrique.'}
-async function trainAILab(){
-  if(autoBusy){$('aiTrainStatus').textContent='Un entraînement est déjà en cours.';return}
-  autoBusy=true;$('aiTrain').disabled=true;$('aiTrainStatus').textContent='Entraînement en cours · 8 simulations…';
-  let difference=0,challengerWins=0,promoted=false;
-  try{
-    const start=loadAI(),challenger=E.mutate(start.w,Math.random),championKey=JSON.stringify(start.w);
-    for(let side=0;side<8;side++){
-      const current=loadAI(),champion={w:current.w,book:current.book,lvl:1},variant={w:challenger,book:current.book,lvl:1};
-      const variantFirst=side%2===0,r=await selfPlay(variantFirst?variant:champion,variantFirst?champion:variant);
-      const variantScore=r.sc[variantFirst?0:1],championScore=r.sc[variantFirst?1:0];
-      difference+=variantScore-championScore;if(variantScore>championScore)challengerWins++;
-      const a=loadAI();E.learn(a.book,r.moves,11,15,2,false,r.sc[0]>r.sc[1]?[0]:r.sc[1]>r.sc[0]?[1]:[]);a.games=(a.games||0)+1;a.st=a.st||{g:0,w:0};a.st.g++;a.st.w+=variantScore>championScore?1:0;saveAI(a);
-      $('aiTrainStatus').textContent='Simulation '+(side+1)+'/8 · '+challengerWins+' victoire(s) de la variante';
-    }
-    const a=loadAI();if(difference>0&&JSON.stringify(a.w)===championKey){a.w=challenger;a.c=null;promoted=true}saveAI(a);
-    $('aiTrainStatus').textContent=promoted?'Entraînement terminé : la variante a dépassé le champion et devient la nouvelle IA.':'Entraînement terminé : le champion conserve sa place. La mémoire a été enrichie.';
-    renderAILab();
-  }catch(e){$('aiTrainStatus').textContent='Entraînement interrompu : '+(e.message||'une erreur est survenue.')}finally{autoBusy=false;$('aiTrain').disabled=false}
-}
-$('aiTrain').onclick=trainAILab;
+function openAILab(){renderAILab();$('aiLab').hidden=false;$('aiTrainStatus').textContent='Made by ChaIr.'}
+function setAITrainingHint(message){$('aiCoach').textContent=message}
+$('aiBoard').addEventListener('click',e=>{
+  const c=$('aiBoard'),r=c.getBoundingClientRect(),px=(e.clientX-r.left)*c.width/r.width,py=(e.clientY-r.top)*c.height/r.height;
+  const col=Math.round((px-AI_TRAIN_PAD)/AI_TRAIN_STEP),row=Math.round((py-AI_TRAIN_PAD)/AI_TRAIN_STEP);
+  if(col<0||col>=AI_TRAIN_W||row<0||row>=AI_TRAIN_H||Math.abs(px-(AI_TRAIN_PAD+col*AI_TRAIN_STEP))>AI_TRAIN_STEP*.48||Math.abs(py-(AI_TRAIN_PAD+row*AI_TRAIN_STEP))>AI_TRAIN_STEP*.48)return;
+  const brush=$('aiBrush').value,idx=aiTraining.stones.findIndex(p=>p.x===col&&p.y===row);
+  if(brush==='choice'){
+    if(idx>=0){setAITrainingHint('Cette intersection est déjà occupée. Choisis une case vide pour le coup à enseigner.');return}
+    aiTraining.choice=[col,row];setAITrainingHint('Coup choisi : '+aiCoord(aiTraining.choice)+'. Appuie sur « Enseigner le coup choisi » pour enregistrer cette leçon.');
+  }else if(brush==='erase'){
+    if(idx>=0)aiTraining.stones.splice(idx,1);
+    aiTraining.choice=null;aiTraining.suggestion=null;
+    setAITrainingHint('Point effacé. Continue à préparer la position.');
+  }else{
+    const owner=Number(brush);
+    if(idx>=0)aiTraining.stones[idx].owner=owner;else aiTraining.stones.push({x:col,y:row,owner});
+    aiTraining.choice=null;aiTraining.suggestion=null;
+    setAITrainingHint('Point placé. Tu peux construire la position en alternant les deux camps.');
+  }
+  drawAITrainingBoard();
+});
+$('aiBrush').onchange=()=>{
+  const v=$('aiBrush').value;
+  setAITrainingHint(v==='choice'?'Touchez une intersection vide pour marquer le coup que tu veux enseigner.':v==='erase'?'Touchez un point pour l’effacer.':'Touchez les intersections pour placer les points du camp sélectionné.');
+};
+$('aiGoal').onchange=()=>setAITrainingHint(aiGoalText[$('aiGoal').value]+' Prépare la position, puis demande une analyse.');
+$('aiAnalyze').onclick=()=>{
+  const s=aiTrainingState(),a=loadAI(),m=E.aiMove(s,()=>0,{w:a.w,book:a.book,lvl:1});
+  if(!m){$('aiTrainStatus').textContent='Aucun coup légal trouvé sur cette position.';return}
+  aiTraining.suggestion=m;drawAITrainingBoard();
+  $('aiTrainStatus').textContent='Réponse proposée par l’IA : '+aiCoord(m)+'. Sélectionne « Coup à enseigner » pour indiquer ta réponse de référence.';
+};
+$('aiTeach').onclick=()=>{
+  if(!aiTraining.choice){$('aiTrainStatus').textContent='Choisis d’abord une intersection vide avec « Coup à enseigner ».';return}
+  const s=aiTrainingState(),[x,y]=aiTraining.choice;
+  if(!E.legal(s,x,y)){$('aiTrainStatus').textContent='Ce coup n’est pas légal dans cette position. Choisis une intersection vide.';return}
+  const a=loadAI();
+  if(!E.teach(a.book,s,x,y,0,1)){$('aiTrainStatus').textContent='La leçon n’a pas pu être enregistrée.';return}
+  a.manualLessons=(a.manualLessons||0)+1;saveAI(a);
+  $('aiTrainStatus').textContent='Leçon enregistrée : '+aiCoord([x,y])+' est mémorisé comme réponse à privilégier.';
+  aiTraining.choice=null;renderAILab();
+};
+$('aiClear').onclick=()=>{
+  aiTraining={stones:[],choice:null,suggestion:null};drawAITrainingBoard();
+  setAITrainingHint('Terrain vidé. Construis une nouvelle situation pour l’IA.');
+  $('aiTrainStatus').textContent='Terrain réinitialisé.';
+};
+$('aiLabLaunch').onclick=openAILab;
 $('aiLabClose').onclick=()=>$('aiLab').hidden=true;
 $('aiLabDone').onclick=()=>$('aiLab').hidden=true;
-let aiHoldTimer=0,aiHoldTriggered=false;
-const progSummary=$('progSummary'),aiHoldBar=$('aiHoldBar');
-function cancelAIHold(){clearTimeout(aiHoldTimer);aiHoldTimer=0;progSummary.classList.remove('ai-holding');aiHoldBar.style.transition='none';aiHoldBar.style.transform='scaleX(0)'}
-progSummary.addEventListener('pointerdown',e=>{
-  if(e.pointerType==='mouse'&&e.button!==0)return;
-  cancelAIHold();void aiHoldBar.offsetWidth;progSummary.classList.add('ai-holding');aiHoldBar.style.transition='transform 15s linear';aiHoldBar.style.transform='scaleX(1)';
-  aiHoldTimer=setTimeout(()=>{aiHoldTimer=0;aiHoldTriggered=true;progSummary.closest('details').open=false;cancelAIHold();openAILab()},15000);
-});
-['pointerup','pointercancel','pointerleave'].forEach(type=>progSummary.addEventListener(type,e=>{if(type!=='pointerleave'||e.pointerType==='mouse')cancelAIHold()}));
-progSummary.addEventListener('click',e=>{if(aiHoldTriggered){e.preventDefault();e.stopPropagation();aiHoldTriggered=false}});
-progSummary.addEventListener('contextmenu',e=>e.preventDefault());
 function fillThemes(){
   const n=jget('g2p.dd',[]).length,sel=$('theme'),cur=(()=>{try{return localStorage.getItem('g2p.theme')||'neon'}catch(e){return'neon'}})();
   sel.replaceChildren(...THEMES.map(t=>{const o=document.createElement('option'),ok=n>=t.need;o.value=t.id;o.disabled=!ok;o.textContent=ok?t.name:t.name+' 🔒 ('+t.need+' défi'+(t.need>1?'s':'')+' du jour)';return o}));
