@@ -1,14 +1,50 @@
 /* Améliorations G2Point */
+
+/* Menu d'actions : dans le flux du jeu, ne masque pas les scores sur mobile. */
 #gameDock{position:fixed;z-index:90;left:12px;top:calc(12px + env(safe-area-inset-top));right:auto;bottom:auto;touch-action:none;cursor:grab}
 #gameDock:active{cursor:grabbing}
 #gameDockToggle{box-shadow:0 8px 28px #0009;backdrop-filter:blur(16px)}
 .game-dock-panel{display:grid;gap:7px;margin-top:8px;padding:9px;border:1px solid var(--neon);background:var(--panel);box-shadow:0 12px 35px #0009;backdrop-filter:blur(16px)}
-#quickReactions{position:fixed;z-index:85;right:14px;bottom:calc(14px + env(safe-area-inset-bottom));display:flex;flex-direction:column;align-items:flex-end;gap:7px;padding:9px;border:1px solid var(--neon);background:var(--panel);box-shadow:0 8px 28px #0009;backdrop-filter:blur(14px)}
-#quickReactions[hidden]{display:none}
-#quickReactions.collapsed button[data-e]{display:none}
-#quickReactions button{min-width:46px;padding:8px 12px}
-#quickReactions .reaction-toggle{font-size:10px}
-.ai-observer{position:fixed;z-index:120;inset:50% auto auto 50%;transform:translate(-50%,-50%);width:min(560px,calc(100vw - 28px));max-height:min(80dvh,720px);overflow:auto;padding:20px;border:1px solid var(--neon);background:linear-gradient(145deg,#11152af5,#090d1df7);box-shadow:0 0 45px #05d9e855;border-radius:16px}
+#gameDock.dock-inline{
+  position:relative!important;inset:auto!important;left:auto!important;top:auto!important;right:auto!important;bottom:auto!important;
+  display:flex!important;align-items:center;justify-content:flex-start;width:100%;margin:4px 0 10px;
+  touch-action:auto;cursor:default;
+}
+#gameDock.dock-inline #gameDockToggle{width:auto;min-width:0;min-height:38px;padding:7px 13px;font-size:11px;letter-spacing:.07em}
+#gameDock.dock-inline #gameDockPanel{position:absolute;top:calc(100% + 6px);left:0;z-index:120;width:min(240px,calc(100vw - 32px));margin:0}
+#gameDockPanel[hidden],#gameDock[hidden]{display:none!important}
+@media(max-width:600px){#gameDock{left:8px;top:8px}}
+
+/* Réactions rapides : une seule définition. Replié = un seul bouton ; ouvert = bouton + 5 réactions. */
+#quickReactions{
+  position:fixed;z-index:110;right:max(10px,env(safe-area-inset-right));bottom:calc(10px + env(safe-area-inset-bottom));
+  display:flex;flex-direction:row;flex-wrap:nowrap;align-items:center;justify-content:flex-end;gap:6px;
+  width:max-content;max-width:calc(100vw - 20px);padding:6px;
+  border:1px solid var(--neon);border-radius:999px;background:var(--panel);box-shadow:0 8px 28px #0009;backdrop-filter:blur(14px);
+  pointer-events:auto;
+}
+#quickReactions[hidden]{display:none!important}
+#quickReactions button[data-e]{width:38px;min-width:38px;height:38px;min-height:38px;padding:0;font-size:20px}
+#quickReactions .reaction-toggle{flex:0 0 auto;width:auto;min-width:0;height:38px;min-height:38px;padding:0 14px;white-space:nowrap;font-size:10px}
+#quickReactions.collapsed button[data-e]{display:none!important}
+/* La fenêtre de message occupe le bas de l'écran : on masque la barre de réactions pendant qu'elle est ouverte. */
+body:has(#chatDialog:not([hidden])) #quickReactions{display:none!important}
+@media(max-width:480px){
+  #quickReactions:not(.collapsed){flex-wrap:wrap;justify-content:center;width:min(250px,calc(100vw - 20px));border-radius:20px}
+  #quickReactions:not(.collapsed) .reaction-toggle{flex:0 0 100%}
+}
+
+/* Plein écran : le document passe en plein écran, #game devient un calque qui garde scores, messages et boutons visibles. */
+body.board-fs{overflow:hidden}
+#game.board-fullscreen{
+  position:fixed;inset:0;z-index:58;width:100vw;height:100dvh;max-width:none;overflow:auto;overscroll-behavior:contain;
+  background:var(--paper);padding:max(8px,env(safe-area-inset-top)) 12px max(8px,env(safe-area-inset-bottom));
+}
+#game.board-fullscreen #cvw{max-height:62dvh}
+#game.board-fullscreen #chatToasts{position:fixed;z-index:150;top:calc(12px + env(safe-area-inset-top));right:10px}
+
+/* Observatoire et simulation IA */
+.ai-observer{position:fixed;z-index:120;inset:50% auto auto 50%;transform:translate(-50%,-50%);width:min(560px,calc(100vw - 28px));max-height:min(88dvh,820px);overflow:auto;padding:20px;border:1px solid var(--neon);background:linear-gradient(145deg,#11152af5,#090d1df7);box-shadow:0 0 45px #05d9e855;border-radius:16px}
 .ai-observer[hidden]{display:none}
 .ai-observer header{display:flex;justify-content:space-between;align-items:center;gap:12px}
 .ai-observer h2{margin:4px 0 12px;font-family:var(--disp)}
@@ -16,67 +52,14 @@
 .observer-stats{padding:12px;background:#05d9e811;border:1px solid var(--bd);border-radius:10px}
 .observer-log{display:grid;gap:6px;max-height:260px;overflow:auto;margin:12px 0;padding:10px;background:#0005;border-radius:10px;font:12px ui-monospace,monospace;color:var(--c2)}
 #progSummary.observer-holding{color:var(--c3);text-shadow:0 0 12px var(--c3)}
-@media(max-width:600px){#gameDock{left:8px;top:8px}#quickReactions{right:8px;bottom:calc(8px + env(safe-area-inset-bottom));gap:4px;padding:6px}#quickReactions button{min-height:38px}}
-
-
-/* Correctifs mobile : le menu reste dans le flux, les réactions sont compactes. */
-#gameDock.dock-inline{
-  position:relative!important;inset:auto!important;left:auto!important;top:auto!important;right:auto!important;bottom:auto!important;
-  display:flex!important;align-items:center;justify-content:flex-start;width:100%;margin:4px 0 10px;
-  touch-action:auto;cursor:default;
-}
-#gameDock.dock-inline #gameDockToggle{
-  width:auto;min-width:0;min-height:38px;padding:7px 13px;font-size:11px;letter-spacing:.07em;
-}
-#gameDock.dock-inline #gameDockPanel{
-  position:absolute;top:calc(100% + 6px);left:0;z-index:120;
-  width:min(220px,calc(100vw - 32px));margin:0;
-}
-#gameDockPanel[hidden],#gameDock[hidden]{display:none!important}
-#quickReactions{
-  flex-direction:row!important;flex-wrap:wrap;align-items:center;justify-content:flex-end;
-  gap:5px;width:max-content;max-width:calc(100vw - 24px);max-height:none;padding:6px;border-radius:999px;
-}
-#quickReactions.collapsed{flex-direction:row!important;padding:5px 8px}
-#quickReactions button[data-e]{width:36px;min-width:36px;height:36px;min-height:36px;padding:0}
-#quickReactions.collapsed button[data-e]{display:none!important}
-#quickReactions .reaction-toggle{width:auto;min-width:0;height:36px;min-height:36px;padding:0 12px;white-space:nowrap}
-@media(max-width:480px){
-  #quickReactions{right:max(8px,env(safe-area-inset-right));bottom:calc(8px + env(safe-area-inset-bottom))}
-}
-
-/* Fix réactions : priorité à hidden et repli piloté par l'unique handler app.js. */
-#quickReactions[hidden]{display:none!important}
-#quickReactions{z-index:110;pointer-events:auto;display:flex;flex-direction:row;align-items:center;justify-content:flex-end;gap:6px;max-width:calc(100vw - 20px)}
-#quickReactions.collapsed{width:auto;max-height:48px;overflow:hidden}
-#quickReactions.collapsed button[data-e]{display:none!important}
-#quickReactions .reaction-toggle{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;min-width:112px}
-#quickReactions:not(.collapsed){flex-wrap:wrap;width:min(260px,calc(100vw - 20px));border-radius:18px}
-#quickReactions:not(.collapsed) button[data-e]{display:inline-flex!important;align-items:center;justify-content:center}
-#game:fullscreen{width:100vw;height:100dvh;max-width:none!important;overflow:auto;background:var(--paper);padding:env(safe-area-inset-top) 12px env(safe-area-inset-bottom)}
-#game:fullscreen #cvw{max-height:55dvh}
-#game:fullscreen #msg,#game:fullscreen #gnote,#game:fullscreen .acts,#game:fullscreen #onlinePanel{position:relative;z-index:80;display:block!important}
-#game:fullscreen #quickReactions{position:fixed;right:10px;bottom:calc(10px + env(safe-area-inset-bottom))}
-#game:fullscreen #chatToasts{position:fixed;z-index:150;top:calc(12px + env(safe-area-inset-top));right:10px}
-#game:fullscreen #gameDock{position:relative!important}
-.ai-live-demo canvas{width:100%;max-height:55dvh;object-fit:contain;background:#080817;border:1px solid var(--neon);touch-action:auto}
-.demo-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
-.demo-actions button{flex:1}
+#observerLive{width:100%;margin-top:12px}
 .ai-live-demo{z-index:180}
-@media(max-width:480px){#quickReactions:not(.collapsed){right:8px;bottom:calc(8px + env(safe-area-inset-bottom));max-height:42dvh;overflow:auto}}
-
-
-/* Fallback plein écran lorsque l'API native est absente ou refusée (notamment mobile). */
-#game.board-fullscreen{
-  position:fixed!important;inset:0!important;z-index:1000!important;
-  display:block!important;width:100vw!important;height:100dvh!important;
-  max-width:none!important;overflow:auto!important;margin:0!important;
-  padding:calc(12px + env(safe-area-inset-top)) 12px calc(12px + env(safe-area-inset-bottom))!important;
-  background:var(--paper)!important;border-radius:0!important;
-}
-#game.board-fullscreen #cvw{max-height:55dvh}
-#game.board-fullscreen #msg,#game.board-fullscreen #gnote,
-#game.board-fullscreen .acts,#game.board-fullscreen #onlinePanel{position:relative;z-index:80;display:block!important}
-#game.board-fullscreen #quickReactions{position:fixed;right:10px;bottom:calc(10px + env(safe-area-inset-bottom))}
-#game.board-fullscreen #chatToasts{position:fixed;z-index:150;top:calc(12px + env(safe-area-inset-top));right:10px}
-#game.board-fullscreen #gameDock{position:relative!important}
+.live-opts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:10px}
+.live-opts label{display:grid;gap:4px;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut)}
+.live-opts select{min-height:40px;padding:6px 8px;border:1px solid var(--bd);border-radius:0;background:rgba(5,217,232,.05);font-size:13px}
+.ai-live-demo canvas{display:block;margin:0 auto;background:var(--paper);border:1px solid var(--neon);touch-action:auto}
+.live-status{margin:10px 0 2px;color:var(--tx)}
+.live-think{margin:0 0 6px;min-height:1.4em;font:12px ui-monospace,monospace;color:var(--c2)}
+.demo-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.demo-actions button{flex:1}
+@media(max-width:480px){.live-opts{grid-template-columns:1fr 1fr}.live-opts label:first-child{grid-column:1/-1}}
