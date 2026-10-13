@@ -64,3 +64,19 @@
 .demo-actions button{flex:1}
 .ai-live-demo{z-index:180}
 @media(max-width:480px){#quickReactions:not(.collapsed){right:8px;bottom:calc(8px + env(safe-area-inset-bottom));max-height:42dvh;overflow:auto}}
+
+
+/* Fallback plein écran lorsque l'API native est absente ou refusée (notamment mobile). */
+#game.board-fullscreen{
+  position:fixed!important;inset:0!important;z-index:1000!important;
+  display:block!important;width:100vw!important;height:100dvh!important;
+  max-width:none!important;overflow:auto!important;margin:0!important;
+  padding:calc(12px + env(safe-area-inset-top)) 12px calc(12px + env(safe-area-inset-bottom))!important;
+  background:var(--paper)!important;border-radius:0!important;
+}
+#game.board-fullscreen #cvw{max-height:55dvh}
+#game.board-fullscreen #msg,#game.board-fullscreen #gnote,
+#game.board-fullscreen .acts,#game.board-fullscreen #onlinePanel{position:relative;z-index:80;display:block!important}
+#game.board-fullscreen #quickReactions{position:fixed;right:10px;bottom:calc(10px + env(safe-area-inset-bottom))}
+#game.board-fullscreen #chatToasts{position:fixed;z-index:150;top:calc(12px + env(safe-area-inset-top));right:10px}
+#game.board-fullscreen #gameDock{position:relative!important}
