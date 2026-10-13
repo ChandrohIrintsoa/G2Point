@@ -44,3 +44,23 @@
 @media(max-width:480px){
   #quickReactions{right:max(8px,env(safe-area-inset-right));bottom:calc(8px + env(safe-area-inset-bottom))}
 }
+
+/* Fix réactions : priorité à hidden et repli piloté par l'unique handler app.js. */
+#quickReactions[hidden]{display:none!important}
+#quickReactions{z-index:110;pointer-events:auto;display:flex;flex-direction:row;align-items:center;justify-content:flex-end;gap:6px;max-width:calc(100vw - 20px)}
+#quickReactions.collapsed{width:auto;max-height:48px;overflow:hidden}
+#quickReactions.collapsed button[data-e]{display:none!important}
+#quickReactions .reaction-toggle{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;min-width:112px}
+#quickReactions:not(.collapsed){flex-wrap:wrap;width:min(260px,calc(100vw - 20px));border-radius:18px}
+#quickReactions:not(.collapsed) button[data-e]{display:inline-flex!important;align-items:center;justify-content:center}
+#game:fullscreen{width:100vw;height:100dvh;max-width:none!important;overflow:auto;background:var(--paper);padding:env(safe-area-inset-top) 12px env(safe-area-inset-bottom)}
+#game:fullscreen #cvw{max-height:55dvh}
+#game:fullscreen #msg,#game:fullscreen #gnote,#game:fullscreen .acts,#game:fullscreen #onlinePanel{position:relative;z-index:80;display:block!important}
+#game:fullscreen #quickReactions{position:fixed;right:10px;bottom:calc(10px + env(safe-area-inset-bottom))}
+#game:fullscreen #chatToasts{position:fixed;z-index:150;top:calc(12px + env(safe-area-inset-top));right:10px}
+#game:fullscreen #gameDock{position:relative!important}
+.ai-live-demo canvas{width:100%;max-height:55dvh;object-fit:contain;background:#080817;border:1px solid var(--neon);touch-action:auto}
+.demo-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.demo-actions button{flex:1}
+.ai-live-demo{z-index:180}
+@media(max-width:480px){#quickReactions:not(.collapsed){right:8px;bottom:calc(8px + env(safe-area-inset-bottom));max-height:42dvh;overflow:auto}}
