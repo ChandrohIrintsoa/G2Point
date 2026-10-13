@@ -8,4 +8,4 @@ ALLOWED_ORIGINS = "https://g2ppoint.web.app,https://g2ppoint.firebaseapp.com"
 [[d1_databases]]
 binding = "DB"
 database_name = "g2point"
-database_id = "25e5daa7-dccc-4142-a001-d720f022c5f0"
+database_id = "98e3c8f6-960e-4d32-b194-6c652b35fe76"
