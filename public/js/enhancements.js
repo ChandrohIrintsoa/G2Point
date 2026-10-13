@@ -13,7 +13,7 @@ if(dock){
 /* Fin de match : le plateau sort du fullscreen et laisse apparaître les résultats. */
 let exitDone=false;
 function leaveFullscreenOnResult(){
-  const end=$('end'),msg=$('msg'),board=$('cvw');
+  const end=$('end'),msg=$('msg'),board=$('game');
   const text=(msg?.textContent||'').toLowerCase();
   const finished=!!end?.hidden&&/(gagne|égalité|abandon|réussi)/i.test(text);
   if(!finished){exitDone=false;return}
@@ -30,7 +30,13 @@ if(reactions&&reactionToggle){
   reactions.classList.add('collapsed');
   reactionToggle.setAttribute('aria-expanded','false');
   reactionToggle.textContent='Réactions +';
+  reactionToggle.addEventListener('click',()=>{
+    const collapsed=reactions.classList.toggle('collapsed');
+    reactionToggle.setAttribute('aria-expanded',String(!collapsed));
+    reactionToggle.textContent=collapsed?'Réactions +':'Réactions −';
+  },{capture:true});
 }
+
 
 /* Laboratoire manuel retiré : accès au moniteur d'observation par appui long de 15 s. */
 const lab=$('aiLab'),launch=$('aiLabLaunch'),summary=$('progSummary');
@@ -49,6 +55,7 @@ if(summary){
   summary.addEventListener('contextmenu',e=>e.preventDefault());
 }
 const trajectory=[];
+let liveDemoTimer=0;
 function renderObserver(){
   const ai=window.G2Engine,stats=$('observerStats');if(!stats)return;
   const a=(()=>{try{return JSON.parse(localStorage.getItem('g2p.ai')||'{}')}catch(e){return {}}})();
@@ -101,7 +108,30 @@ if(E&&typeof E.aiMove==='function'&&!E.__observing){
   };
   E.__observing=true;
 }
+
+/* Démo IA sur un vrai canvas, accessible depuis le menu caché. */
+const demo=document.createElement('section');demo.id='aiLiveDemo';demo.className='ai-observer ai-live-demo';demo.hidden=true;
+demo.innerHTML='<header><div><small>SIMULATION EN DIRECT</small><h2>Terrain d’exercice IA</h2></div><button type="button" id="demoClose">Fermer</button></header><canvas id="demoBoard" width="550" height="750" aria-label="Terrain de simulation IA"></canvas><p id="demoStatus" aria-live="polite">Prêt à simuler.</p><div class="demo-actions"><button type="button" id="demoStep">Un coup</button><button type="button" id="demoRun">Démarrer</button><button type="button" id="demoReset">Réinitialiser</button></div>';
+document.body.append(demo);
+let demoState=null,demoMoves=0,demoRunning=false;
+function initDemo(){if(!E)return;demoState=E.create(11,15,2,false);demoMoves=0;drawDemo();$('demoStatus').textContent='Terrain réel 11 × 15 · IA contre IA · 0 coup.'}
+function drawDemo(){
+ const c=$('demoBoard'),ctx=c.getContext('2d');if(!demoState)return;
+ const w=c.width,h=c.height,dx=w/(demoState.w+1),dy=h/(demoState.h+1);ctx.clearRect(0,0,w,h);ctx.fillStyle='#080817';ctx.fillRect(0,0,w,h);
+ ctx.strokeStyle='#29265b';ctx.lineWidth=1;for(let x=1;x<=demoState.w;x++){ctx.beginPath();ctx.moveTo(x*dx,0);ctx.lineTo(x*dx,h);ctx.stroke()}for(let y=1;y<=demoState.h;y++){ctx.beginPath();ctx.moveTo(0,y*dy);ctx.lineTo(w,y*dy);ctx.stroke()}
+ for(let y=0;y<demoState.h;y++)for(let x=0;x<demoState.w;x++){const p=demoState.o[y][x];if(!p)continue;ctx.beginPath();ctx.fillStyle=p===1?'#ff668c':'#05d9e8';ctx.shadowColor=ctx.fillStyle;ctx.shadowBlur=10;ctx.arc((x+1)*dx,(y+1)*dy,Math.min(dx,dy)*.28,0,Math.PI*2);ctx.fill();ctx.shadowBlur=0}
+ $('demoStatus').textContent='Coup '+demoMoves+' · Scores : '+demoState.sc.join(' — ')+' · Tour IA '+(demoState.cur+1);
+}
+function demoStep(){if(!demoState||demoState.free<=0)initDemo();const m=E.aiMove(demoState,E.rng(Date.now()+demoMoves),{lvl:1});if(!m){initDemo();return}if(E.apply(demoState,m)){demoMoves++;drawDemo();logTrajectory('Simulation terrain · coup '+demoMoves+' : '+(m[0]+1)+','+(m[1]+1))}}
+function stopDemo(){demoRunning=false;clearInterval(liveDemoTimer);$('demoRun').textContent='Démarrer'}
+$('demoClose').onclick=()=>{demo.hidden=true;stopDemo()};
+$('demoStep').onclick=demoStep;
+$('demoRun').onclick=()=>{if(demoRunning){stopDemo();return}demoRunning=true;$('demoRun').textContent='Pause';liveDemoTimer=setInterval(demoStep,700)};
+$('demoReset').onclick=()=>{stopDemo();initDemo()};
+const dockDemo=document.createElement('button');dockDemo.type='button';dockDemo.textContent='Voir les simulations IA';dockDemo.onclick=()=>{panel.hidden=true;demo.hidden=false;if(!demoState)initDemo()};panel?.append(dockDemo);
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){demo.hidden=true;stopDemo()}});
 setInterval(()=>{if(!monitor.hidden)renderObserver()},5000);
+
 
 /* Thèmes supplémentaires, avec variables de rendu cohérentes pour le moteur canvas. */
 const themes={
