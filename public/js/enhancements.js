@@ -58,7 +58,7 @@ const E=window.G2Engine;
 if(E&&typeof E.aiMove==='function'&&!E.__observing){
   const base=E.aiMove;
   const DIRS=[[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
-  const scanRadius=4,MAX_CANDIDATES=120,REPLY_TOP=18;
+  const scanRadius=4,MAX_CANDIDATES=120,REPLY_TOP=16;
   const collect=(s)=>{
     const found=new Map();
     for(let y=0;y<s.h;y++)for(let x=0;x<s.w;x++)if(s.o[y][x]){
@@ -96,19 +96,14 @@ if(E&&typeof E.aiMove==='function'&&!E.__observing){
     ranked.sort((a,b)=>b.value-a.value);
     /* Examiner les suites offensives et défensives, puis anticiper la meilleure riposte adverse. */
     const shortlist=ranked.slice(0,MAX_CANDIDATES);
-    for(const item of shortlist){
+    for(const item of shortlist.slice(0,REPLY_TOP)){
       const s=item.next;
       let follow=0,threat=0;
       if(!s.bonus){
-        const ownMoves=collect(s);
-        for(const m of ownMoves){
-          const c=E.clone(s);if(E.apply(c,m))follow=Math.max(follow,c.sc[me]-s.sc[me]);
-        }
+        const continuation=base(s,()=>0.23,{...(params||{}),lvl:1});
+        if(continuation){const c=E.clone(s);if(E.apply(c,continuation))follow=Math.max(0,c.sc[me]-s.sc[me]);}
         const reply=base(s,()=>0.37,{...(params||{}),lvl:2});
-        if(reply){
-          const c=E.clone(s);
-          if(E.apply(c,reply))threat=Math.max(0,c.sc[opp]-s.sc[opp]);
-        }
+        if(reply){const c=E.clone(s);if(E.apply(c,reply))threat=Math.max(0,c.sc[opp]-s.sc[opp]);}
       }
       item.value+=follow*5.5-threat*7.5;
       if(item.move[0]===chosen[0]&&item.move[1]===chosen[1])item.value+=.2;
