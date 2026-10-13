@@ -30,11 +30,6 @@ if(reactions&&reactionToggle){
   reactions.classList.add('collapsed');
   reactionToggle.setAttribute('aria-expanded','false');
   reactionToggle.textContent='Réactions +';
-  reactionToggle.addEventListener('click',()=>{
-    const collapsed=reactions.classList.toggle('collapsed');
-    reactionToggle.setAttribute('aria-expanded',String(!collapsed));
-    reactionToggle.textContent=collapsed?'Réactions +':'Réactions −';
-  },{capture:true});
 }
 
 
