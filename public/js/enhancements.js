@@ -1,18 +1,13 @@
 /* G2Point — améliorations d'interface et observation autonome de l'IA */
 (()=>{'use strict';
 const $=id=>document.getElementById(id);
-const style=document.createElement('link');style.rel='stylesheet';style.href='css/enhancements.css';document.head.append(style);
 
-/* Menu flottant : déplacement tactile/souris et repli indépendant. */
+/* Menu d'actions intégré au flux du jeu : ne masque plus les scores sur mobile. */
 const dock=$('gameDock'),toggle=$('gameDockToggle'),panel=$('gameDockPanel');
-if(dock&&toggle&&panel){
-  let drag=null,moved=false;
-  const saved=(()=>{try{return JSON.parse(localStorage.getItem('g2p.dock')||'null')}catch(e){return null}})();
-  if(saved&&Number.isFinite(saved.x)&&Number.isFinite(saved.y)){dock.style.left=saved.x+'px';dock.style.top=saved.y+'px';dock.style.right='auto';dock.style.bottom='auto'}
-  toggle.addEventListener('pointerdown',e=>{if(e.button!==0)return;const r=dock.getBoundingClientRect();drag={x:e.clientX,y:e.clientY,l:r.left,t:r.top};moved=false;toggle.setPointerCapture(e.pointerId)});
-  toggle.addEventListener('pointermove',e=>{if(!drag)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;if(Math.hypot(dx,dy)>5)moved=true;if(moved){dock.style.left=Math.max(0,Math.min(innerWidth-dock.offsetWidth,drag.l+dx))+'px';dock.style.top=Math.max(0,Math.min(innerHeight-dock.offsetHeight,drag.t+dy))+'px';dock.style.right='auto';dock.style.bottom='auto'}});
-  toggle.addEventListener('pointerup',()=>{if(moved){const r=dock.getBoundingClientRect();try{localStorage.setItem('g2p.dock',JSON.stringify({x:r.left,y:r.top}))}catch(e){} }drag=null;});
-  toggle.addEventListener('click',e=>{if(moved){e.preventDefault();e.stopImmediatePropagation();moved=false}},true);
+if(dock){
+  const game=$('game'),bar=$('bar');
+  if(game&&bar&&dock.parentElement!==game)bar.insertAdjacentElement('afterend',dock);
+  dock.classList.add('dock-inline');
 }
 
 /* Fin de match : le plateau sort du fullscreen et laisse apparaître les résultats. */
@@ -29,17 +24,18 @@ function leaveFullscreenOnResult(){
 }
 setInterval(leaveFullscreenOnResult,250);
 
-/* Réactions : panneau repliable, ancré en bas à droite en mode fullscreen. */
+/* Réactions repliées par défaut : app.js gère déjà le clic (un seul gestionnaire). */
 const reactions=$('quickReactions'),reactionToggle=$('toggleReactions');
 if(reactions&&reactionToggle){
-  reactionToggle.setAttribute('aria-expanded','true');
-  reactionToggle.addEventListener('click',()=>{const collapsed=reactions.classList.toggle('collapsed');reactionToggle.setAttribute('aria-expanded',String(!collapsed));reactionToggle.textContent=collapsed?'Réactions +':'Réactions −'});
+  reactions.classList.add('collapsed');
+  reactionToggle.setAttribute('aria-expanded','false');
+  reactionToggle.textContent='Réactions +';
 }
 
 /* Laboratoire manuel retiré : accès au moniteur d'observation par appui long de 15 s. */
 const lab=$('aiLab'),launch=$('aiLabLaunch'),summary=$('progSummary');
-if(lab)lab.remove();
-if(launch)launch.remove();
+if(lab)lab.hidden=true;
+if(launch)launch.hidden=true;
 const monitor=document.createElement('section');monitor.id='aiObserver';monitor.className='ai-observer';monitor.hidden=true;monitor.innerHTML='<header><div><small>APPRENTISSAGE AUTONOME</small><h2>Observatoire IA</h2></div><button type="button" id="observerClose">Fermer</button></header><p>L’IA observe les coups, les menaces et les trajectoires possibles autour de chaque point.</p><div class="observer-stats" id="observerStats"></div><div class="observer-log" id="observerLog" aria-live="polite">En attente d’une partie…</div><button type="button" id="observerClear">Effacer le journal visuel</button>';
 document.body.append(monitor);
 $('observerClose').onclick=()=>monitor.hidden=true;
@@ -78,8 +74,12 @@ if(E&&typeof E.aiMove==='function'&&!E.__observing){
     }
     add(chosen[0],chosen[1]);
     let best=chosen,bestScore=-Infinity,examined=0;
-    for(const move of candidates.values()){
-      if(++examined>64)break;
+    /* Prioriser le coup de base et les cases proches de celui-ci : éviter le biais
+       vers le coin supérieur gauche quand le plateau contient beaucoup de points. */
+    const shortlist=[...candidates.values()];
+    shortlist.sort((a,b)=>(Math.abs(a[0]-chosen[0])+Math.abs(a[1]-chosen[1]))-(Math.abs(b[0]-chosen[0])+Math.abs(b[1]-chosen[1])));
+    for(const move of shortlist.slice(0,64)){
+      examined++;
       const next=E.clone(state);if(!E.apply(next,move))continue;
       const gain=next.sc[me]-state.sc[me],loss=next.sc[opp]-state.sc[opp];
       let own=0,enemy=0,diagonal=0;
