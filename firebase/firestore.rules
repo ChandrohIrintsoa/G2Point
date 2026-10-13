@@ -141,10 +141,25 @@ service cloud.firestore {
     function validRematch() {
       return isPlayer(resource.data)
         && (resource.data.ended == true || resource.data.moves.size() >= resource.data.w * resource.data.h)
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['next'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['next', 'nextBy'])
         && resource.data.get('next', '') == ''
+        && resource.data.get('nextBy', '') == ''
         && request.resource.data.next is string
+        && request.resource.data.nextBy == request.auth.uid
         && request.resource.data.next.matches('^[A-HJ-NP-Z2-9]{5}$');
+    }
+
+    // Suppression d'un salon d'attente : seul son créateur peut le retirer
+    // tant qu'aucun autre joueur n'a pris de siège et qu'aucun coup n'a été joué.
+    function canDeleteWaitingGame() {
+      return signedIn()
+        && resource.data.s0 == request.auth.uid
+        && resource.data.s1 == ''
+        && resource.data.s2 == ''
+        && resource.data.s3 == ''
+        && resource.data.moves is list
+        && resource.data.moves.size() == 0
+        && resource.data.ended == false;
     }
 
     match /games/{gameCode} {
@@ -163,7 +178,7 @@ service cloud.firestore {
         validResign() ||
         validRematch()
       );
-      allow delete: if false;
+      allow delete: if canDeleteWaitingGame();
 
       match /messages/{messageId} {
         function parentExists() {

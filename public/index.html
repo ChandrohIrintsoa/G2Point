@@ -77,15 +77,26 @@
 <section id="game" hidden>
   <div id="bar"></div>
   <div id="cvw"><canvas id="cv" tabindex="0" role="application" aria-label="Terrain de jeu. Flèches pour déplacer le curseur, Entrée pour poser un point"></canvas></div>
+    <div class="view-controls" aria-label="Réglages du terrain">
+      <button id="zoomOut" type="button" aria-label="Dézoomer">−</button>
+      <label class="zoom-slider" for="zoomRange"><span>Zoom</span><input id="zoomRange" type="range" min="1" max="4" step="0.05" value="1"><output id="zoomValue" for="zoomRange">100 %</output></label>
+      <button id="zoomIn" type="button" aria-label="Zoomer">+</button>
+      <button id="zoomReset" type="button">Centrer</button>
+    </div>
   <div id="combo" aria-hidden="true"></div>
   <div id="msg" role="status" aria-live="polite"></div>
   <div class="note" id="gnote" role="status" aria-live="polite"></div>
   <section id="onlinePanel" class="online-panel" hidden aria-label="Salon de la partie">
     <div class="online-head"><span>Code de la partie : <strong id="gameCode">—</strong></span><button id="copyCode" type="button">Copier le code</button></div>
     <div id="roster" class="roster" aria-label="Joueurs dans la partie"></div>
+    <button id="cancelQueue" class="danger-soft" type="button" hidden>Annuler la recherche et supprimer le salon</button>
     <button id="chatOpen" type="button" class="chat-launch">Ouvrir la discussion <span id="chatBadge" class="chat-badge" hidden>0</span></button>
   </section>
-  <div class="acts"><button id="rematch" class="pri" type="button" hidden>Revanche</button><button id="undo" type="button" hidden>↶ Annuler</button><button id="zoomOut" type="button" aria-label="Dézoomer">−</button><button id="zoomIn" type="button" aria-label="Zoomer">+</button><button id="zoomLock" type="button" aria-pressed="false">🔓 Zoom libre</button><button id="resign" type="button" hidden>Abandonner</button><button id="share" type="button" hidden>Partager le résultat</button><button id="forfeit" type="button" hidden>Déclarer l’abandon</button><button id="end">Terminer la partie</button><button id="snd" type="button">🔊 Son</button><button id="back">Menu</button></div>
+  <div id="quickReactions" class="quick-reactions" hidden aria-label="Réactions rapides">
+    <button type="button" data-e="👏" aria-label="Applaudir">👏</button><button type="button" data-e="🔥" aria-label="Bien joué">🔥</button><button type="button" data-e="😂" aria-label="Rire">😂</button><button type="button" data-e="😮" aria-label="Surpris">😮</button><button type="button" data-e="😤" aria-label="Défi">😤</button>
+  </div>
+  <div id="chatToasts" class="chat-toasts" aria-live="polite" aria-atomic="false"></div>
+  <div class="acts"><button id="rematch" class="pri" type="button" hidden>Revanche</button><button id="undo" type="button" hidden>↶ Annuler</button><button id="resign" type="button" hidden>Abandonner</button><button id="share" type="button" hidden>Partager le résultat</button><button id="forfeit" type="button" hidden>Déclarer l’abandon</button><button id="end">Terminer la partie</button><button id="snd" type="button">🔊 Son</button><button id="back">Menu</button></div>
 </section>
 </main>
 
@@ -93,6 +104,7 @@
   <canvas id="confetti" aria-hidden="true"></canvas>
   <section class="win-box">
     <h2 id="winTitle">Fin de partie</h2>
+    <p id="winStatus" class="win-status" aria-live="polite"></p>
     <div id="winScores" class="win-scores"></div>
     <ul id="winRecap" class="win-recap"></ul>
     <div class="stack">

@@ -79,14 +79,26 @@ function patKey(s,x,y,t){
   }
   return k;
 }
+/* Contexte stratégique appris : phase de partie, densité locale et chaîne de captures.
+   Il permet à l'IA de réutiliser des familles de plans, pas seulement des voisinages isolés. */
+function strategyKey(s,x,y,t){
+  const opp=1-t,phase=s.n<8?'O':s.n<30?'M':'E',mine=links(s,x,y,t),enemy=links(s,x,y,opp);
+  const pressure=mine>=3?'F':mine>=1?'P':'I',danger=enemy>=2?'D':'S',chain=s.combo>0?'C':'N';
+  const edge=x<2||y<2||x>=s.w-2||y>=s.h-2?'B':'C';
+  return `S|${phase}|${pressure}|${danger}|${chain}|${edge}`;
+}
+function record(book,key,gain,won){
+  const e=book[key]||(book[key]=[0,0,0]);e[0]++;e[1]+=gain;if(won)e[2]++;
+}
 /* Rejoue une partie et enregistre, pour chaque coup, [fois joué, gain cumulé, victoires du joueur] */
 function learn(book,mv,w,h,n,tm,win){
   const s=create(w,h,n,tm);
   for(const m of mv){
     const t=tmOf(tm,s.cur),k=patKey(s,m[0],m[1],t);
+    const sk=strategyKey(s,m[0],m[1],t);
     if(!apply(s,m))continue;
-    const gain=s.capT==t?s.cap.length:-s.cap.length,e=book[k]||(book[k]=[0,0,0]);
-    e[0]++;e[1]+=gain;if(win.includes(t))e[2]++;
+    const gain=s.capT==t?s.cap.length:-s.cap.length,won=win.includes(t);
+    record(book,k,gain,won);record(book,sk,gain,won);
   }
 }
 /* Cases candidates : vides, hors territoire confiné, proches d'un point existant */
@@ -118,8 +130,9 @@ function aiMove(s,rnd=Math.random,P){
     let v=(a.sc[t]-s.sc[t])*w[0]-(a.sc[opp]-s.sc[opp])*w[1];
     const b=clone(s);b.cur=opp;apply(b,[x,y]);v+=(b.sc[opp]-s.sc[opp])*w[2]*L.block; /* case où l'adversaire capturerait */
     for(const [dx,dy] of N8){const u=x+dx,q=y+dy;if(u<0||q<0||u>=W||q>=H)continue;const p=s.o[q][u];if(p==t+1)v+=w[3];else if(p)v+=w[4]}
-    const e=L.book&&book&&book[patKey(s,x,y,t)];
+    const e=L.book&&book&&book[patKey(s,x,y,t)],se=L.book&&book&&book[strategyKey(s,x,y,t)];
     if(e)v+=w[5]*Math.max(-2,Math.min(3,(e[1]*1.5+e[2]*.8)/(e[0]+2))); /* techniques vues dans les parties */
+    if(se&&se[0]>=3)v+=w[5]*.65*Math.max(-2,Math.min(3,(se[1]*1.25+se[2])/(se[0]+2))); /* stratégie validée par plusieurs observations */
     v+=rnd()*L.noise;scored.push({m:[x,y],v,cap:a.bonus});
   }
   scored.sort((p,q)=>q.v-p.v);
@@ -157,6 +170,6 @@ function genPuzzle(rnd=Math.random,intel=0,P,maxMs=1500){
   }
   return null;
 }
-const api={genPuzzle,puzzleSpec,create,scan,apply,legal,links,tmOf,grid,clone,rng,aiMove,learn,patKey,mutate,DEFAULT_W,LEVELS};
+const api={genPuzzle,puzzleSpec,create,scan,apply,legal,links,tmOf,grid,clone,rng,aiMove,learn,patKey,strategyKey,mutate,DEFAULT_W,LEVELS};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.G2Engine=api;
 })(typeof window!=='undefined'?window:globalThis);
