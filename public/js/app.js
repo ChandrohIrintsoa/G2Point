@@ -89,9 +89,9 @@ function layer(x,w,h){
 function paint(){
   if(!S)return;
   const c=$('cv'),wrap=$('cvw');
-  const fullBoard=wrap.matches(':fullscreen')||wrap.classList.contains('board-fullscreen')||$('game').matches(':fullscreen')||$('game').classList.contains('board-fullscreen');
+  const fullBoard=$('game').classList.contains('board-fullscreen');
   if(!$('game').hidden)document.querySelector('main').style.maxWidth=fullBoard?'none':Math.max(320,Math.min(900,(innerHeight-250)*(W+1)/(H+1)))+'px';
-  const bw=fullBoard?Math.min(innerWidth-24,(innerHeight-24)*(W+1)/(H+1)):wrap.clientWidth;if(!bw)return;
+  const bw=fullBoard?Math.min(innerWidth-24,innerHeight*.6*(W+1)/(H+1)):wrap.clientWidth;if(!bw)return; /* plein écran : 60 % de la hauteur, le reste garde scores, messages et boutons visibles */
   wrap.classList.toggle('zoomed',zoom>1);
   const w=bw*zoom;
   cs=w/(W+1);const h=cs*(H+1),r=window.devicePixelRatio||1,pw=Math.round(w*r),ph=Math.round(h*r),now=performance.now();
@@ -397,7 +397,7 @@ function showChatToast(d){
   const toast=document.createElement('article'),meta=document.createElement('strong'),body=document.createElement('span');
   const message=String(d.text||'').slice(0,500),reaction=Array.from(message).length<=4;
   toast.className='chat-toast'+(reaction?' reaction':'');
-  meta.textContent=playerNameByUid(d.uid);body.textContent=message;
+  meta.textContent=d.uid===cid?'Vous':playerNameByUid(d.uid);body.textContent=message;
   toast.append(meta,body);host.append(toast);
   setTimeout(()=>{toast.classList.add('leaving');setTimeout(()=>toast.remove(),260)},CHAT_TOAST_MS);
 }
@@ -426,7 +426,7 @@ async function sendChatMessage(text,keep){
   if(!clean||mode!=='online'||!ref||!cid||Date.now()-lastSend<800)return;lastSend=Date.now();
   const send=$('chatSend');send.disabled=true;
   let sent=false;
-  try{await ref.collection('messages').add({uid:cid,text:clean,createdAt:firebase.firestore.FieldValue.serverTimestamp(),expireAt:messageExpiry()});if(!keep){$('chatInput').value='';sent=true}}
+  try{await ref.collection('messages').add({uid:cid,text:clean,createdAt:firebase.firestore.FieldValue.serverTimestamp(),expireAt:messageExpiry()});if(!keep){$('chatInput').value='';sent=true}else showChatToast({uid:cid,text:clean})} /* réaction : retour visuel immédiat pour l'expéditeur */
   catch(e){err(e);$('chatState').textContent='Envoi impossible. Vérifiez votre connexion et les règles Firestore.'}
   finally{send.disabled=false;if(sent)closeChatPopup();else if(!$('chatDialog').hidden)$('chatInput').focus()}
 }
@@ -584,7 +584,7 @@ $('end').onclick=async()=>{
   if(mode=='local'){ended=true;upd()}
   else try{await ref.update({ended:true})}catch(e){err(e)}
 };
-$('back').onclick=()=>{closeLobby();$('win').hidden=true;clearTimeout(winTimer);clearTimeout(aiTimer);unsub&&unsub();unsub=null;unsubChat&&unsubChat();unsubChat=null;$('chatDialog').hidden=true;mode='';moves=[];S=null;gameData=null;resetMatchFx();show(false);renderOnlinePanel({n:N})};
+$('back').onclick=()=>{if(isBoardFullscreen())setBoardFullscreen(false);closeLobby();$('win').hidden=true;clearTimeout(winTimer);clearTimeout(aiTimer);unsub&&unsub();unsub=null;unsubChat&&unsubChat();unsubChat=null;$('chatDialog').hidden=true;mode='';moves=[];S=null;gameData=null;resetMatchFx();show(false);renderOnlinePanel({n:N})};
 
 $('online').hidden=false;
 $('bNew').disabled=true;$('bJoin').disabled=true;$('bQuick').disabled=true;
@@ -615,34 +615,57 @@ function openChatPopup(){if(mode!=='online'||!ready)return;chatUnread=0;$('chatB
 function closeChatPopup(){$('chatDialog').hidden=true;$('chatInput').blur()}
 $('chatOpen').onclick=openChatPopup;
 $('chatClose').onclick=closeChatPopup;
-$('quickReactions').onclick=e=>{const b=e.target.closest('button[data-e]');if(b&&b.id!=='toggleReactions')sendChatMessage(b.dataset.e,true)};
-$('toggleReactions').onclick=()=>{const box=$('quickReactions'),collapsed=box.classList.toggle('collapsed');$('toggleReactions').textContent=collapsed?'Réactions +':'Réactions −';$('toggleReactions').setAttribute('aria-expanded',String(!collapsed))};
+/* Réactions rapides : un seul état (ouvert / replié). Elles se replient après un envoi, un appui à l'extérieur ou Échap. */
+const reactBox=$('quickReactions'),reactToggle=$('toggleReactions');
+function setReactionsOpen(open){
+  reactBox.classList.toggle('collapsed',!open);
+  reactToggle.textContent=open?'Réactions −':'Réactions +';
+  reactToggle.setAttribute('aria-expanded',String(open));
+}
+reactToggle.addEventListener('click',()=>setReactionsOpen(reactBox.classList.contains('collapsed')));
+reactBox.addEventListener('click',e=>{
+  const b=e.target.closest('button[data-e]');if(!b)return;
+  sendChatMessage(b.dataset.e,true);setReactionsOpen(false);
+});
+document.addEventListener('pointerdown',e=>{
+  if(reactBox.classList.contains('collapsed')||reactBox.contains(e.target)||e.target.closest('#dockReactions'))return;
+  setReactionsOpen(false);
+});
+setReactionsOpen(false);
 $('chatForm').addEventListener('submit',e=>{e.preventDefault();sendChatMessage($('chatInput').value)});
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeChatPopup();$('aiLab').hidden=true}});
+document.addEventListener('keydown',e=>{
+  if(e.key!=='Escape')return;
+  closeChatPopup();$('aiLab').hidden=true;setReactionsOpen(false);
+  if(isBoardFullscreen()&&!document.fullscreenElement)setBoardFullscreen(false); /* repli sans API plein écran (ex. iPhone) */
+});
 $('gameDockToggle').onclick=()=>{const panel=$('gameDockPanel'),open=panel.hidden;panel.hidden=!open;$('gameDockToggle').setAttribute('aria-expanded',String(open));$('gameDockToggle').textContent=open?'☰ Fermer':'☰ Menu'};
 $('dockFullscreen').onclick=()=>$('boardFullscreen').click();
-$('dockReactions').onclick=()=>$('toggleReactions').click();
+$('dockReactions').onclick=()=>{
+  if(reactBox.hidden){note('Les réactions rapides sont disponibles pendant une partie en ligne.');return}
+  $('gameDockPanel').hidden=true;$('gameDockToggle').setAttribute('aria-expanded','false');$('gameDockToggle').textContent='☰ Menu';
+  setReactionsOpen(reactBox.classList.contains('collapsed'));
+};
 $('dockChat').onclick=openChatPopup;
 $('dockMenu').onclick=()=>$('back').click();
-/* Compatibilité Fullscreen API : navigateurs standards, WebKit et mode immersif CSS. */
-const fullscreenElement=()=>document.fullscreenElement||document.webkitFullscreenElement||document.mozFullScreenElement||document.msFullscreenElement||null;
-const requestElement=el=>{const fn=el.requestFullscreen||el.webkitRequestFullscreen||el.webkitRequestFullScreen||el.mozRequestFullScreen||el.msRequestFullscreen;return fn?Promise.resolve(fn.call(el)).catch(()=>false):Promise.resolve(false)};
-const exitElement=()=>{const fn=document.exitFullscreen||document.webkitExitFullscreen||document.webkitCancelFullScreen||document.mozCancelFullScreen||document.msExitFullscreen;return fn?Promise.resolve(fn.call(document)).catch(()=>false):Promise.resolve(false)};
-async function toggleBoardFullscreen(){
-  const game=$('game'),current=fullscreenElement();
-  if(current===game||game.classList.contains('board-fullscreen')){
-    if(current)await exitElement();
-    game.classList.remove('board-fullscreen');
-  }else{
-    if(current)await exitElement();
-    const entered=await requestElement(game);
-    if(!entered&&!fullscreenElement())game.classList.add('board-fullscreen');
-  }
+/* Plein écran : c'est le DOCUMENT qui passe en plein écran, pas #game. Un élément en plein écran masque tout le reste
+   du body (fenêtre de message, résultat, simulation IA…) ; la classe .board-fullscreen agrandit le terrain et garde
+   scores, message et boutons sous les yeux. Sans API plein écran (iPhone), la classe seule donne un plein cadre. */
+const isBoardFullscreen=()=>$('game').classList.contains('board-fullscreen');
+async function setBoardFullscreen(on){
+  $('game').classList.toggle('board-fullscreen',on);document.body.classList.toggle('board-fs',on);
+  try{
+    if(on&&!document.fullscreenElement&&document.documentElement.requestFullscreen)await document.documentElement.requestFullscreen({navigationUI:'hide'});
+    else if(!on&&document.fullscreenElement)await document.exitFullscreen();
+  }catch(e){/* refusé par le navigateur : le plein cadre par classe reste actif */}
   updateFullscreenLabel();draw();
 }
-function updateFullscreenLabel(){const active=fullscreenElement()===$('game')||$('game').classList.contains('board-fullscreen');$('boardFullscreen').textContent=active?'⤢ Quitter le plein écran':'⛶ Plein écran';$('dockFullscreen').textContent=active?'⤢ Quitter le plein écran':'⛶ Terrain plein écran'}
+const toggleBoardFullscreen=()=>setBoardFullscreen(!isBoardFullscreen());
+function updateFullscreenLabel(){const active=isBoardFullscreen();$('boardFullscreen').textContent=active?'⤢ Quitter le plein écran':'⛶ Plein écran';$('dockFullscreen').textContent=active?'⤢ Quitter le plein écran':'⛶ Terrain plein écran'}
 $('boardFullscreen').onclick=toggleBoardFullscreen;
-['fullscreenchange','webkitfullscreenchange','mozfullscreenchange','MSFullscreenChange'].forEach(ev=>document.addEventListener(ev,()=>{updateFullscreenLabel();draw()}));
+document.addEventListener('fullscreenchange',()=>{
+  if(!document.fullscreenElement&&isBoardFullscreen()){$('game').classList.remove('board-fullscreen');document.body.classList.remove('board-fs')} /* sortie par Échap / retour système */
+  updateFullscreenLabel();draw();
+});
 $('cvw').addEventListener('dblclick',toggleBoardFullscreen);
 
 $('copyCode').onclick=async()=>{
