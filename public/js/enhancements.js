@@ -57,44 +57,69 @@ function logTrajectory(text){trajectory.push(new Date().toLocaleTimeString('fr-F
 const E=window.G2Engine;
 if(E&&typeof E.aiMove==='function'&&!E.__observing){
   const base=E.aiMove;
+  const DIRS=[[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
+  const scanRadius=4,MAX_CANDIDATES=120,REPLY_TOP=18;
+  const collect=(s)=>{
+    const found=new Map();
+    for(let y=0;y<s.h;y++)for(let x=0;x<s.w;x++)if(s.o[y][x]){
+      for(const [dx,dy] of DIRS)for(let k=1;k<=scanRadius;k++){
+        const a=x+dx*k,b=y+dy*k;
+        if(E.legal(s,a,b))found.set(b*s.w+a,[a,b]);
+      }
+    }
+    return [...found.values()];
+  };
+  const scorePosition=(before,after,me,opp,move)=>{
+    const own=after.sc[me]-before.sc[me],lost=after.sc[opp]-before.sc[opp];
+    let friendly=0,enemy=0,open=0;
+    for(const [dx,dy] of DIRS){
+      const x=move[0]+dx,y=move[1]+dy;
+      if(x<0||y<0||x>=before.w||y>=before.h)continue;
+      const p=before.o[y][x];
+      if(p===me+1)friendly++;else if(p===opp+1)enemy++;else if(!p&&!before.blk[y][x])open++;
+    }
+    return own*30-lost*34+friendly*1.15+enemy*.9+open*.12;
+  };
   E.aiMove=function(state,rng,params){
     const chosen=base(state,rng,params);if(!chosen)return chosen;
-    const me=E.tmOf(state.tm,state.cur),opp=1-me,dirs=[[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
-    const candidates=new Map(),add=(x,y)=>{if(E.legal(state,x,y))candidates.set(y*state.w+x,[x,y])};
     if(!state.o.some(row=>row.some(Boolean)))return chosen;
-    for(let y=0;y<state.h;y++)for(let x=0;x<state.w;x++)if(state.o[y][x]){
-      for(const [dx,dy] of dirs)for(let k=1;k<=2;k++)add(x+dx*k,y+dy*k);
-    }
-    add(chosen[0],chosen[1]);
-    let best=chosen,bestScore=-Infinity,examined=0;
-    /* Prioriser le coup de base et les cases proches de celui-ci : éviter le biais
-       vers le coin supérieur gauche quand le plateau contient beaucoup de points. */
-    const shortlist=[...candidates.values()];
-    shortlist.sort((a,b)=>(Math.abs(a[0]-chosen[0])+Math.abs(a[1]-chosen[1]))-(Math.abs(b[0]-chosen[0])+Math.abs(b[1]-chosen[1])));
-    for(const move of shortlist.slice(0,64)){
-      examined++;
+    const me=E.tmOf(state.tm,state.cur),opp=1-me;
+    const pool=collect(state);
+    if(!pool.length)return chosen;
+    /* Scanner tous les points adverses et alliés dans un rayon de quatre intersections. */
+    const ranked=[];
+    for(const move of pool){
       const next=E.clone(state);if(!E.apply(next,move))continue;
-      const gain=next.sc[me]-state.sc[me],loss=next.sc[opp]-state.sc[opp];
-      let own=0,enemy=0,diagonal=0;
-      for(const [dx,dy] of dirs){const x=move[0]+dx,y=move[1]+dy;if(x<0||y<0||x>=state.w||y>=state.h)continue;
-        const p=state.o[y][x];if(p===me+1)own++;else if(p===opp+1)enemy++;if(dx&&dy&&p===me+1)diagonal++;
-      }
-      let follow=0,defence=0;
-      if(!next.bonus){
-        for(const [dx,dy] of dirs){const x=move[0]+dx,y=move[1]+dy;if(x<0||y<0||x>=state.w||y>=state.h||!E.legal(next,x,y))continue;
-          const chain=E.clone(next);if(E.apply(chain,[x,y]))follow=Math.max(follow,chain.sc[me]-next.sc[me]);
-          const block=E.clone(next);block.cur=opp;if(E.apply(block,[x,y]))defence=Math.max(defence,block.sc[opp]-next.sc[opp]);
+      let value=scorePosition(state,next,me,opp,move);
+      ranked.push({move,next,value});
+    }
+    ranked.sort((a,b)=>b.value-a.value);
+    /* Examiner les suites offensives et défensives, puis anticiper la meilleure riposte adverse. */
+    const shortlist=ranked.slice(0,MAX_CANDIDATES);
+    for(const item of shortlist){
+      const s=item.next;
+      let follow=0,threat=0;
+      if(!s.bonus){
+        const ownMoves=collect(s);
+        for(const m of ownMoves){
+          const c=E.clone(s);if(E.apply(c,m))follow=Math.max(follow,c.sc[me]-s.sc[me]);
+        }
+        const reply=base(s,()=>0.37,{...(params||{}),lvl:2});
+        if(reply){
+          const c=E.clone(s);
+          if(E.apply(c,reply))threat=Math.max(0,c.sc[opp]-s.sc[opp]);
         }
       }
-      const score=gain*18-loss*20+own*1.25+enemy*.7+diagonal*.8+follow*3.2-defence*2.8+(move[0]===chosen[0]&&move[1]===chosen[1]?.15:0);
-      if(score>bestScore){bestScore=score;best=move}
+      item.value+=follow*5.5-threat*7.5;
+      if(item.move[0]===chosen[0]&&item.move[1]===chosen[1])item.value+=.2;
     }
-    logTrajectory('Coup '+String.fromCharCode(65+best[0])+(best[1]+1)+' · '+examined+' trajectoires · score '+bestScore.toFixed(1));
-    return best;
+    shortlist.sort((a,b)=>b.value-a.value);
+    const best=shortlist[0]||{move:chosen,value:0};
+    logTrajectory('Scan rayon 4 : '+pool.length+' cases · '+shortlist.length+' suites étudiées · attaque '+(best.next.sc[me]-state.sc[me])+' · menace adverse anticipée');
+    return best.move;
   };
   E.__observing=true;
 }
-
 /* Simulation IA en direct, sur demande : IA contre IA sur un vrai terrain (mêmes couleurs, territoires et points capturés
    que dans une partie). Accessible depuis le menu caché (☰ Menu) et depuis l'observatoire. Lecture seule : ne modifie pas la mémoire de l'IA. */
 const SIZES={'11x15':[11,15],'17x23':[17,23],'23x31':[23,31]},SPEEDS={slow:900,normal:420,fast:120},TAU=Math.PI*2,LIVE_NAMES=['Rouge','Cyan'];
