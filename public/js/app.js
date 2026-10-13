@@ -282,7 +282,7 @@ function refreshResume(){
 function clearSave(){try{localStorage.removeItem('g2p.save')}catch(e){}refreshResume()}
 const saveLocal=()=>{if(puz<0)putSave({m:'local',ai,d:daily,l:lvl,w:W,h:H,n:N,tm:TM,mv:moves.map(([a,b])=>b*W+a)})};
 
-const undoBase=()=>puz>=0?PZ.setup(PZ.list[puz]).length:daily?DAILY_STONES:0;
+const undoBase=()=>puz>=0?PZ.setup(puzs[puz]).length:daily?DAILY_STONES:0;
 function animateScores(prev,fresh){ /* chip qui saute, compteur qui roule, « +N » flottant */
   if(!fresh||RM||!prev||prev.length!=S.sc.length)return;
   S.sc.forEach((v,i)=>{
@@ -296,7 +296,7 @@ function showCombo(k){const c=$('combo');c.textContent='COMBO ×'+k;c.classList.
 function upd(){
   const prev=prevSc,fresh=sync();
   if(puz>=0&&mode=='local'&&!puzState){ /* puzzle : un seul coup autorisé */
-    const pz=PZ.list[puz],base=PZ.setup(pz).length;
+    const pz=puzs[puz],base=PZ.setup(pz).length;
     if(moves.length>base){
       if(S.sc[0]>=pz.goal){puzState='ok';ended=true;puzSolved(puz)}
       else{puzState='ko';setTimeout(()=>{if(puz>=0&&puzState=='ko'){moves=moves.slice(0,base);puzState='';S=null;upd()}},PUZ_RETRY_MS)}
@@ -310,7 +310,7 @@ function upd(){
   let m;
   if(puz>=0&&puzState=='ok')m='Réussi ! 🏆 '+S.sc[0]+' point'+(S.sc[0]>1?'s':'')+' capturé'+(S.sc[0]>1?'s':'')+'.';
   else if(puz>=0&&puzState=='ko')m='Raté : ce coup ne capture pas assez de points. On recommence…';
-  else if(puz>=0)m='Objectif : capturer '+PZ.list[puz].goal+' point'+(PZ.list[puz].goal>1?'s':'')+' en un seul coup.';
+  else if(puz>=0)m='Objectif : capturer '+puzs[puz].goal+' point'+(puzs[puz].goal>1?'s':'')+' en un seul coup.';
   else if(mode=='online'&&!ready)m='En attente des joueurs ('+filled+'/'+N+'). Partagez le code '+code+'.';
   else if(o){
     const {fl,mx,w}=result();
@@ -515,7 +515,7 @@ $('bDaily').onclick=()=>{
   renderOnlinePanel({n:N});show(true);note('Défi du jour — '+daily);upd();
 };
 $('rematch').onclick=async()=>{
-  if(puz>=0){startPuzzle((puz+1)%PZ.list.length);return}
+  if(puz>=0){newPuzzle();return}
   if(mode=='local'){aiPick();moves=daily?dailyOpening(daily):[];S=null;ended=false;wasOver=false;upd();aiTurn();return}
   if(rematchCode){joinGame(rematchCode);return}
   const old=ref;if(await createGame(true)&&old)old.update({next:code}).catch(()=>{}); /* invite les autres joueurs */
@@ -579,7 +579,7 @@ const ACHS=[
   {id:'win3',n:'Triple série',d:'Gagner 3 parties d’affilée'},
   {id:'daily',n:'Habitué du jour',d:'Terminer un défi du jour'},
   {id:'hard',n:'Défi relevé',d:'Battre l’IA en niveau difficile'},
-  {id:'puz',n:'Casse-tête',d:'Résoudre tous les puzzles'}
+  {id:'puz',n:'Casse-tête',d:'Résoudre 5 puzzles de l’IA'}
 ];
 const loadProg=()=>{const P=jget('g2p.prog',null)||{};return{streak:P.streak||0,best:P.best||0,elo:P.elo||{},ach:P.ach||{},h2h:P.h2h||{}}};
 const eloKey=()=>(TM?'Équipes':N+' joueurs')+(ai?' · vs IA':'');
@@ -675,21 +675,33 @@ const zoomLabel=()=>$('zoom').textContent='🔍 Zoom ×'+zoom;
 $('zoom').onclick=()=>{zoom=ZOOMS[(ZOOMS.indexOf(zoom)+1)%ZOOMS.length];zoomLabel();dirty=true;draw()};
 
 /* ===== Puzzles « capture en 1 coup » ===== */
-const solvedPuz=()=>jget('g2p.puz',[]);
+const aiIntel=()=>{const a=loadAI();return Math.min(10,Math.floor(Math.sqrt(a.games))+Math.floor(Object.keys(a.book).length/300)+Math.min(3,a.st.w))}; /* « intelligence » = expérience de l'IA */
+let puzs=[],puzBusy=false;
 function renderPuz(){
-  const sv=solvedPuz();
-  $('puzList').replaceChildren(...PZ.list.map((p,i)=>{const b=document.createElement('button');b.type='button';b.textContent=(i+1)+'. '+p.name+(sv.includes(i)?' ✅':'');b.onclick=()=>startPuzzle(i);return b}));
+  const sv=jget('g2p.puzn',0),i0=aiIntel(),sp=E.puzzleSpec(i0);
+  const info=document.createElement('p');info.textContent='Intelligence de l’IA : '+i0+'/10 · puzzles générés par l’IA : capture de '+sp.goal+' point'+(sp.goal>1?'s':'')+' en un coup · '+sv+' résolu'+(sv>1?'s':'');
+  const gen=document.createElement('button');gen.type='button';gen.className='pri';gen.disabled=puzBusy;gen.textContent=puzBusy?'L’IA prépare un puzzle…':'Nouveau puzzle de l’IA';gen.onclick=newPuzzle;
+  $('puzList').replaceChildren(info,gen,...puzs.map((p,i)=>{const b=document.createElement('button');b.type='button';b.textContent='Rejouer #'+(i+1)+' (IA '+p.intel+', '+p.goal+' pt)'+(p.done?' ✅':'');b.onclick=()=>startPuzzle(i);return b}));
+}
+function newPuzzle(){
+  if(puzBusy)return;puzBusy=true;renderPuz();
+  setTimeout(()=>{ /* génération hors du rendu ; plusieurs tentatives si la position idéale n'est pas trouvée */
+    const a=loadAI(),it=aiIntel();let p=null;
+    for(let k=0;k<4&&!p;k++)p=E.genPuzzle(Math.random,it,{w:a.c||a.w,book:a.book},1500);
+    puzBusy=false;
+    if(!p){renderPuz();note('Aucun puzzle trouvé cette fois, réessayez.');return}
+    puzs.push(p);renderPuz();startPuzzle(puzs.length-1);
+  },30);
 }
 function startPuzzle(i){
-  const p=PZ.list[i];puz=i;puzState='';W=PZ.W;H=PZ.H;N=2;TM=false;ai=false;daily='';aiPick();
+  const p=puzs[i];puz=i;puzState='';W=PZ.W;H=PZ.H;N=2;TM=false;ai=false;daily='';aiPick();
   moves=PZ.setup(p);S=null;ended=false;wasOver=false;mode='local';ready=true;me=-1;code='';gameData=null;
-  renderOnlinePanel({n:N});show(true);note('Puzzle '+(i+1)+' — '+p.name+' : '+p.hint);upd();
+  renderOnlinePanel({n:N});show(true);note('Puzzle de l’IA (intelligence '+p.intel+') : '+p.hint);upd();
 }
 function puzSolved(i){
-  const sv=solvedPuz();if(!sv.includes(i)){sv.push(i);jset('g2p.puz',sv)}
-  track('puzzle_solved',{level:i+1});
-  if(sv.length>=PZ.list.length){const P=loadProg();newAch=[];unlock(P,'puz');jset('g2p.prog',P);if(newAch.length)note(newAch.join(' · '))}
-  renderPuz();
+  const p=puzs[i];if(!p.done){p.done=true;const n=jget('g2p.puzn',0)+1;jset('g2p.puzn',n);
+    if(n>=5){const P=loadProg();newAch=[];unlock(P,'puz');jset('g2p.prog',P);if(newAch.length)note(newAch.join(' · '))}}
+  track('puzzle_solved',{intel:p.intel});renderPuz();
 }
 $('bPuz').onclick=()=>{const b=$('puzList');b.hidden=!b.hidden;renderPuz()};
 

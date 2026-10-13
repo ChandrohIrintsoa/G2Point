@@ -109,9 +109,9 @@ function replyGain(s,opp){
 }
 function aiMove(s,rnd=Math.random,P){
   const W=s.w,H=s.h,t=tmOf(s.tm,s.cur),opp=1-t,w=(P&&P.w)||DEFAULT_W,book=P&&P.book,L=LEVELS[(P&&P.lvl!=null)?P.lvl:1]||LEVELS[1];
-  const {any,list:cand}=cands(s);
+  const {any,list:c0}=cands(s),Z=P&&P.zone,cand=Z?c0.filter(([x,y])=>x>=Z[0]&&x<=Z[1]&&y>=Z[2]&&y<=Z[3]):c0; /* zone optionnelle : jeu compact (puzzles) */
   if(!any){const c=[W>>1,H>>1];return legal(s,c[0],c[1])?c:null}
-  if(!cand.length){for(let y=0;y<H;y++)for(let x=0;x<W;x++)if(legal(s,x,y))return[x,y];return null}
+  if(!cand.length){for(let y=0;y<H;y++)for(let x=0;x<W;x++)if(legal(s,x,y)&&(!Z||(x>=Z[0]&&x<=Z[1]&&y>=Z[2]&&y<=Z[3])))return[x,y];return null}
   const scored=[];
   for(const [x,y] of cand){
     const a=clone(s);apply(a,[x,y]);
@@ -132,6 +132,31 @@ function aiMove(s,rnd=Math.random,P){
   }
   return scored[0].m;
 }
-const api={create,scan,apply,legal,links,tmOf,grid,clone,rng,aiMove,learn,patKey,mutate,DEFAULT_W,LEVELS};
+/* Puzzle généré par l'IA : parties IA (Rouge niveau normal) contre IA faible (Bleu), on garde une position où Rouge
+   a UN SEUL coup qui capture >= goal points. La difficulté (goal, nombre de pierres) croît avec l'intelligence de l'IA. */
+const ZONE=[2,8,3,11]; /* zone centrale où se joue le puzzle */
+const puzzleSpec=intel=>({goal:Math.min(4,1+Math.floor(intel/3)),minMoves:12+intel*2});
+function genPuzzle(rnd=Math.random,intel=0,P,maxMs=1500){
+  const {goal,minMoves}=puzzleSpec(intel),t0=Date.now();
+  while(Date.now()-t0<maxMs){
+    const s=create(11,15,2,false),mv=[];
+    while(s.free>0&&mv.length<60&&Date.now()-t0<maxMs){
+      let m=aiMove(s,rnd,{w:P&&P.w,book:P&&P.book,lvl:s.cur?0:1,zone:ZONE});if(!m)break;
+      if(!s.cur){ /* Rouge construit sa chaîne mais ne conclut jamais : la capture reste à trouver */
+        const t=clone(s);apply(t,m);
+        if(t.sc[0]>s.sc[0]){const alt=cands(s).list.filter(([x,y])=>x>=ZONE[0]&&x<=ZONE[1]&&y>=ZONE[2]&&y<=ZONE[3]&&(()=>{const c=clone(s);apply(c,[x,y]);return c.sc[0]==s.sc[0]})());if(alt.length)m=alt[(rnd()*alt.length)|0]}
+      }
+      apply(s,m);mv.push(m);
+      if(s.cur!==0||s.bonus||mv.length<minMoves)continue;
+      const sol=[];
+      for(let y=0;y<s.h&&sol.length<2;y++)for(let x=0;x<s.w;x++){
+        if(!legal(s,x,y))continue;const c=clone(s);apply(c,[x,y]);if(c.sc[0]-s.sc[0]>=goal)sol.push([x,y]);
+      }
+      if(sol.length===1)return{name:'Puzzle IA',goal,intel,moves:mv.slice(),sol:sol[0],hint:'Un seul coup capture '+goal+' point'+(goal>1?'s':'')+' : trouvez-le.'};
+    }
+  }
+  return null;
+}
+const api={genPuzzle,puzzleSpec,create,scan,apply,legal,links,tmOf,grid,clone,rng,aiMove,learn,patKey,mutate,DEFAULT_W,LEVELS};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.G2Engine=api;
 })(typeof window!=='undefined'?window:globalThis);

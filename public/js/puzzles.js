@@ -10,6 +10,7 @@ const P=[
 ];
 /* Séquence de coups alternés (Rouge d'abord) menant à la position du puzzle */
 function setup(p){
+  if(p.moves)return p.moves; /* puzzle généré par l'IA : position complète */
   const mv=[],bl=p.blue.slice();let f=0;
   for(let i=0;i<p.red.length;i++){mv.push(p.red[i]);mv.push(bl[i]||FILL[f++])}
   return mv;
