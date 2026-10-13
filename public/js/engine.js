@@ -13,42 +13,77 @@ const legal=(s,x,y)=>x>=0&&y>=0&&x<s.w&&y<s.h&&!s.o[y][x]&&!s.blk[y][x];
 /* Territoire : une zone fermée qui a capturé devient inaccessible pour tous. */
 function mark(s,c){for(const [a,b] of c.cells)if(!s.blk[b][a]){s.blk[b][a]=true;if(!s.o[b][a])s.free--}}
 /* Zones fermées par l'équipe t : composantes de cases non atteignables depuis le bord.
-   Si `at` est fourni, on s'arrête dès que la composante contenant `at` est trouvée (early-exit). */
+   Si `at` est fourni, on s'arrête dès que la composante contenant `at` est trouvée (early-exit).
+   Version tableaux typés + tampons réutilisés : aucune allocation par case (c'était le point chaud de l'IA). */
+let SCR=null;
+const scratch=n=>{if(!SCR||SCR.n!==n)SCR={n,wall:new Uint8Array(n),seen:new Uint8Array(n),vis:new Uint8Array(n),st:new Int32Array(n),mk:new Int32Array(n),stamp:0};else{SCR.seen.fill(0);SCR.vis.fill(0)}return SCR};
 function scan(s,t,at){
-  const W=s.w,H=s.h,{o,d}=s,wall=(a,b)=>o[b][a]==t+1&&!d[b][a],seen=grid(W,H,false),st=[];
-  const push=(a,b)=>{if(!seen[b][a]&&!wall(a,b)){seen[b][a]=true;st.push([a,b])}};
-  for(let a=0;a<W;a++){push(a,0);push(a,H-1)}
-  for(let b=0;b<H;b++){push(0,b);push(W-1,b)}
-  while(st.length){const [a,b]=st.pop();for(const [dx,dy] of N4){const u=a+dx,v=b+dy;if(u>=0&&v>=0&&u<W&&v<H)push(u,v)}}
-  const vis=grid(W,H,false);
-  const grow=(a,b)=>{
-    const cells=[],bd=new Set(),q=[[a,b]];vis[b][a]=true;
-    while(q.length){
-      const [i,j]=q.pop();cells.push([i,j]);
+  const W=s.w,H=s.h,{o,d}=s,n=W*H,SR=scratch(n),{wall,seen,vis,st}=SR,tt=t+1;
+  function grow(i0){
+    const cells=[],bd=new Set();let q=0;vis[i0]=1;st[q++]=i0;
+    while(q){
+      const i=st[--q],a=i%W,b=(i-a)/W;cells.push([a,b]);
       for(const [dx,dy] of N8){
-        const u=i+dx,v=j+dy;if(u<0||v<0||u>=W||v>=H)continue;
-        if(wall(u,v))bd.add(v*W+u);
-        else if(dx*dy==0&&!seen[v][u]&&!vis[v][u]){vis[v][u]=true;q.push([u,v])}
+        const u=a+dx,v=b+dy;if(u<0||v<0||u>=W||v>=H)continue;
+        const k=v*W+u;
+        if(wall[k])bd.add(k);
+        else if(dx*dy==0&&!seen[k]&&!vis[k]){vis[k]=1;st[q++]=k}
       }
     }
     return{cells,bd};
-  };
-  if(at){const [x,y]=at;return seen[y][x]||wall(x,y)?[]:[grow(x,y)]}
-  const comps=[];
-  for(let b=0;b<H;b++)for(let a=0;a<W;a++){
-    if(seen[b][a]||wall(a,b)||vis[b][a])continue;
-    comps.push(grow(a,b));
   }
+  if(at){ /* chemin rapide : on part de la case et on s'arrête dès qu'on touche le bord (cas le plus fréquent : pas enfermé) */
+    const x0=at[0],y0=at[1];
+    if(o[y0][x0]==tt&&!d[y0][x0])return[];
+    if(x0<=0||y0<=0||x0>=W-1||y0>=H-1)return[];
+    const mk=SR.mk,sg=++SR.stamp,i0=y0*W+x0;let sp=0;
+    mk[i0]=sg;st[sp++]=i0;
+    while(sp){
+      const i=st[--sp],x=i%W,y=(i-x)/W;
+      for(let k=0;k<4;k++){
+        const u=k==0?x+1:k==1?x-1:x,v=k==2?y+1:k==3?y-1:y;
+        if(u<0||v<0||u>=W||v>=H)continue;
+        if(o[v][u]==tt&&!d[v][u])continue;
+        const j=v*W+u;if(mk[j]==sg)continue;
+        if(u==0||v==0||u==W-1||v==H-1)return[]; /* atteint le bord : non enfermé */
+        mk[j]=sg;st[sp++]=j;
+      }
+    }
+    /* enfermé : seen reste vide, la composante de at est exactement la zone atteinte */
+    for(let y=0,i=0;y<H;y++){const ro=o[y],rd=d[y];for(let x=0;x<W;x++,i++)wall[i]=ro[x]==tt&&!rd[x]?1:0}
+    return[grow(i0)];
+  }
+  let walls=0;
+  for(let y=0,i=0;y<H;y++){const ro=o[y],rd=d[y];for(let x=0;x<W;x++,i++){const w=ro[x]==tt&&!rd[x];wall[i]=w?1:0;if(w)walls++}}
+  if(walls<4)return[]; /* il faut au moins 4 murs (losange) pour enfermer une case */
+  let sp=0;
+  const push=i=>{if(!seen[i]&&!wall[i]){seen[i]=1;st[sp++]=i}};
+  for(let x=0;x<W;x++){push(x);push((H-1)*W+x)}
+  for(let y=0;y<H;y++){push(y*W);push(y*W+W-1)}
+  while(sp){
+    const i=st[--sp],x=i%W,y=(i-x)/W;
+    if(x+1<W)push(i+1);if(x>0)push(i-1);if(y+1<H)push(i+W);if(y>0)push(i-W);
+  }
+  const comps=[];
+  for(let i=0;i<n;i++){if(seen[i]||wall[i]||vis[i])continue;comps.push(grow(i))}
   return comps;
 }
 /* Nombre de points vivants de l'équipe t dans les 8 cases voisines */
 function links(s,x,y,t){let k=0;for(const [dx,dy] of N8){const u=x+dx,v=y+dy;if(u>=0&&v>=0&&u<s.w&&v<s.h&&s.o[v][u]==t+1&&!s.d[v][u])k++}return k}
+/* Condition nécessaire pour qu'un nouveau point ferme une boucle : il doit relier deux de mes points vivants
+   qui ne se touchent pas déjà entre eux (distance de Tchebychev 2) — sinon ils fermaient déjà la zone sans lui. */
+function canClose(s,x,y,t){
+  const W=s.w,H=s.h,tt=t+1,px=[],py=[];
+  for(const [dx,dy] of N8){const u=x+dx,v=y+dy;if(u>=0&&v>=0&&u<W&&v<H&&s.o[v][u]==tt&&!s.d[v][u]){px.push(dx);py.push(dy)}}
+  for(let i=0;i<px.length;i++)for(let j=i+1;j<px.length;j++)if(Math.abs(px[i]-px[j])==2||Math.abs(py[i]-py[j])==2)return true;
+  return false;
+}
 /* Joue un coup. Retourne false (sans rien modifier) si le coup est illégal, y compris dans un territoire confiné. */
 function apply(s,[x,y]){
   if(!legal(s,x,y))return false;
   const K=s.tm?2:s.N,t=tmOf(s.tm,s.cur);s.o[y][x]=t+1;s.free--;let g=0;s.cap=[];s.capT=t;
   /* Un point relié à moins de 2 de mes points ne peut pas fermer de boucle : on évite le scan complet */
-  if(links(s,x,y,t)>=MIN_LINK)for(const c of scan(s,t)){
+  if(canClose(s,x,y,t))for(const c of scan(s,t)){
     const vic=c.cells.filter(([a,b])=>s.o[b][a]&&s.o[b][a]!=t+1&&!s.d[b][a]);
     if(vic.length){vic.forEach(([a,b])=>s.d[b][a]=true);s.sc[t]+=vic.length;g+=vic.length;s.loops.push({t,c});mark(s,c);s.cap.push(...vic)}
   }

@@ -36,3 +36,18 @@ test('IA : bloque une capture adverse',()=>{
 test('RNG déterministe (défi du jour)',()=>{
   const a=E.rng(20261012),b=E.rng(20261012);assert.deepEqual([a(),a(),a()],[b(),b(),b()]);
 });
+
+// Non-régression : parties aléatoires à graine fixe, résultats figés depuis le moteur d'origine (avant optimisation de scan/apply).
+test('moteur : résultats identiques à la référence (parties aléatoires à graine fixe)',()=>{
+  const ref=[
+    {w:9,h:9,n:2,tm:false,seed:11,sc:[1,0],big:[1,0],free:13,loops:1},
+    {w:11,h:15,n:2,tm:false,seed:22,sc:[0,6],big:[0,2],free:21,loops:6},
+    {w:8,h:8,n:4,tm:true,seed:33,sc:[4,0],big:[2,0],free:8,loops:3},
+    {w:17,h:23,n:3,tm:false,seed:44,sc:[1,3,4],big:[1,2,2],free:51,loops:6}
+  ];
+  for(const g of ref){
+    const s=E.create(g.w,g.h,g.n,g.tm),r=E.rng(g.seed);
+    for(let k=0;k<g.w*g.h*2;k++)E.apply(s,[(r()*g.w)|0,(r()*g.h)|0]);
+    assert.deepEqual({sc:s.sc,big:s.big,free:s.free,loops:s.loops.length},{sc:g.sc,big:g.big,free:g.free,loops:g.loops});
+  }
+});
