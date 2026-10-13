@@ -79,7 +79,7 @@ if(E&&typeof E.aiMove==='function'&&!E.__observing){
     add(chosen[0],chosen[1]);
     let best=chosen,bestScore=-Infinity,examined=0;
     for(const move of candidates.values()){
-      if(++examined>180)break;
+      if(++examined>64)break;
       const next=E.clone(state);if(!E.apply(next,move))continue;
       const gain=next.sc[me]-state.sc[me],loss=next.sc[opp]-state.sc[opp];
       let own=0,enemy=0,diagonal=0;
