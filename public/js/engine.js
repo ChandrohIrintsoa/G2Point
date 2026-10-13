@@ -3,7 +3,7 @@
 const N4=[[1,0],[-1,0],[0,1],[0,-1]],N8=[...N4,[1,1],[1,-1],[-1,1],[-1,-1]];
 const grid=(W,H,v)=>Array.from({length:H},()=>Array(W).fill(v));
 const tmOf=(tm,p)=>tm?p%2:p;
-const CAND_RADIUS=2;      /* l'IA n'envisage que les cases à ≤2 d'un point existant */
+const CAND_RADIUS=4;      /* scan tactique à rayon 4 autour de chaque point existant */
 const MIN_LINK=2;         /* un point ne peut fermer une boucle que s'il touche ≥2 de mes points vivants */
 const HARD_TOP=5,HARD_REPLY=.8; /* niveau difficile : réponses adverses examinées sur les 5 meilleurs coups */
 const LEVELS=[{name:'Facile',noise:4,block:.3,book:false,deep:false},{name:'Normal',noise:.3,block:1,book:true,deep:false},{name:'Difficile',noise:.05,block:1,book:true,deep:true}];
