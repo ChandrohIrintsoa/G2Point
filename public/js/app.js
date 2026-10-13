@@ -624,19 +624,25 @@ $('dockFullscreen').onclick=()=>$('boardFullscreen').click();
 $('dockReactions').onclick=()=>$('toggleReactions').click();
 $('dockChat').onclick=openChatPopup;
 $('dockMenu').onclick=()=>$('back').click();
+/* Compatibilité Fullscreen API : navigateurs standards, WebKit et mode immersif CSS. */
+const fullscreenElement=()=>document.fullscreenElement||document.webkitFullscreenElement||document.mozFullScreenElement||document.msFullscreenElement||null;
+const requestElement=el=>{const fn=el.requestFullscreen||el.webkitRequestFullscreen||el.webkitRequestFullScreen||el.mozRequestFullScreen||el.msRequestFullscreen;return fn?Promise.resolve(fn.call(el)).catch(()=>false):Promise.resolve(false)};
+const exitElement=()=>{const fn=document.exitFullscreen||document.webkitExitFullscreen||document.webkitCancelFullScreen||document.mozCancelFullScreen||document.msExitFullscreen;return fn?Promise.resolve(fn.call(document)).catch(()=>false):Promise.resolve(false)};
 async function toggleBoardFullscreen(){
-  const game=$('game');
-  try{
-    if(document.fullscreenElement===game)await document.exitFullscreen();
-    else if(document.fullscreenElement)await document.exitFullscreen();
-    if(!document.fullscreenElement&&game.requestFullscreen)await game.requestFullscreen();
-    else if(!game.requestFullscreen)game.classList.toggle('board-fullscreen');
-  }catch(e){game.classList.toggle('board-fullscreen')}
+  const game=$('game'),current=fullscreenElement();
+  if(current===game||game.classList.contains('board-fullscreen')){
+    if(current)await exitElement();
+    game.classList.remove('board-fullscreen');
+  }else{
+    if(current)await exitElement();
+    const entered=await requestElement(game);
+    if(!entered&&!fullscreenElement())game.classList.add('board-fullscreen');
+  }
   updateFullscreenLabel();draw();
 }
-function updateFullscreenLabel(){const active=document.fullscreenElement===$('game')||$('game').classList.contains('board-fullscreen');$('boardFullscreen').textContent=active?'⤢ Quitter le plein écran':'⛶ Plein écran';$('dockFullscreen').textContent=active?'⤢ Quitter le plein écran':'⛶ Terrain plein écran'}
+function updateFullscreenLabel(){const active=fullscreenElement()===$('game')||$('game').classList.contains('board-fullscreen');$('boardFullscreen').textContent=active?'⤢ Quitter le plein écran':'⛶ Plein écran';$('dockFullscreen').textContent=active?'⤢ Quitter le plein écran':'⛶ Terrain plein écran'}
 $('boardFullscreen').onclick=toggleBoardFullscreen;
-document.addEventListener('fullscreenchange',()=>{updateFullscreenLabel();draw()});
+['fullscreenchange','webkitfullscreenchange','mozfullscreenchange','MSFullscreenChange'].forEach(ev=>document.addEventListener(ev,()=>{updateFullscreenLabel();draw()}));
 $('cvw').addEventListener('dblclick',toggleBoardFullscreen);
 
 $('copyCode').onclick=async()=>{
