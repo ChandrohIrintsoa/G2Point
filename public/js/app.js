@@ -89,7 +89,7 @@ function layer(x,w,h){
 function paint(){
   if(!S)return;
   const c=$('cv'),wrap=$('cvw');
-  const fullBoard=wrap.matches(':fullscreen')||wrap.classList.contains('board-fullscreen');
+  const fullBoard=wrap.matches(':fullscreen')||wrap.classList.contains('board-fullscreen')||$('game').matches(':fullscreen')||$('game').classList.contains('board-fullscreen');
   if(!$('game').hidden)document.querySelector('main').style.maxWidth=fullBoard?'none':Math.max(320,Math.min(900,(innerHeight-250)*(W+1)/(H+1)))+'px';
   const bw=fullBoard?Math.min(innerWidth-24,(innerHeight-24)*(W+1)/(H+1)):wrap.clientWidth;if(!bw)return;
   wrap.classList.toggle('zoomed',zoom>1);
@@ -625,17 +625,16 @@ $('dockReactions').onclick=()=>$('toggleReactions').click();
 $('dockChat').onclick=openChatPopup;
 $('dockMenu').onclick=()=>$('back').click();
 async function toggleBoardFullscreen(){
-  const board=$('cvw');
+  const game=$('game');
   try{
-    if(board.classList.contains('board-fullscreen'))board.classList.remove('board-fullscreen');
-    else if(document.fullscreenElement===board)await document.exitFullscreen();
-    else if(document.fullscreenElement){await document.exitFullscreen();await board.requestFullscreen()}
-    else if(board.requestFullscreen)await board.requestFullscreen();
-    else board.classList.add('board-fullscreen');
-  }catch(e){board.classList.toggle('board-fullscreen')}
+    if(document.fullscreenElement===game)await document.exitFullscreen();
+    else if(document.fullscreenElement)await document.exitFullscreen();
+    if(!document.fullscreenElement&&game.requestFullscreen)await game.requestFullscreen();
+    else if(!game.requestFullscreen)game.classList.toggle('board-fullscreen');
+  }catch(e){game.classList.toggle('board-fullscreen')}
   updateFullscreenLabel();draw();
 }
-function updateFullscreenLabel(){const active=document.fullscreenElement===$('cvw')||$('cvw').classList.contains('board-fullscreen');$('boardFullscreen').textContent=active?'⤢ Quitter le plein écran':'⛶ Plein écran';$('dockFullscreen').textContent=active?'⤢ Quitter le plein écran':'⛶ Terrain plein écran'}
+function updateFullscreenLabel(){const active=document.fullscreenElement===$('game')||$('game').classList.contains('board-fullscreen');$('boardFullscreen').textContent=active?'⤢ Quitter le plein écran':'⛶ Plein écran';$('dockFullscreen').textContent=active?'⤢ Quitter le plein écran':'⛶ Terrain plein écran'}
 $('boardFullscreen').onclick=toggleBoardFullscreen;
 document.addEventListener('fullscreenchange',()=>{updateFullscreenLabel();draw()});
 $('cvw').addEventListener('dblclick',toggleBoardFullscreen);
