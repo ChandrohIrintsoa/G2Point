@@ -3,7 +3,7 @@ const E=window.G2Engine,PZ=window.G2Puzzles;
 /* Constantes nommées (plus de nombres magiques dans le rendu et la logique) */
 const TAU=Math.PI*2,STONE_R=.3,LINE_W=.13,LAST_RING=3,FX_MS=600,POP_MS=380,STAGGER_MS=60,MAX_STAGGER=20,WIN_DELAY=900,
   CHAT_BADGE_MAX=99,CHAT_SCROLL_SLACK=70,IDLE_FORFEIT_MS=12e4,AI_DELAY_MS=380,DAILY_STONES=6,MAX_LIVE=5,PAN_PX=10,
-  ZOOMS=[1,1.6,2.4],AUTO_EVERY_MS=45000,AUTO_MAX_GAMES=40,PUZ_RETRY_MS=1300,ELO_K=24,LOBBY_TTL_MS=36e5,LOBBY_MAX_AGE_MS=6e5,
+  ZOOM_MIN=1,ZOOM_MAX=4,ZOOM_STEP=1.25,AUTO_EVERY_MS=45000,AUTO_MAX_GAMES=40,PUZ_RETRY_MS=1300,ELO_K=24,LOBBY_TTL_MS=36e5,LOBBY_MAX_AGE_MS=6e5,
   THEMES=[{id:'neon',name:'Néon',need:0},{id:'aurore',name:'Aurore',need:1},{id:'ambre',name:'Ambre',need:3},{id:'mono',name:'Monochrome',need:7}];
 let puz=-1,puzState='',zoom=1,prevSc=null,pop=null,winTimer=0,lvl=1,autoBusy=false,autoCount=0,lobbyCode='',an=null,newAch=[],pan=null;
 const jget=(k,d)=>{try{const v=JSON.parse(localStorage.getItem(k));return v==null?d:v}catch(e){return d}},jset=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
@@ -425,17 +425,27 @@ async function place(pt){
 
 const cv=$('cv');
 const pt=e=>{const r=cv.getBoundingClientRect(),a=Math.round((e.clientX-r.left)/cs)-1,b=Math.round((e.clientY-r.top)/cs)-1;return a>=0&&b>=0&&a<W&&b<H?[a,b]:null};
-cv.onpointerdown=e=>{pan={x:e.clientX,y:e.clientY,sx:$('cvw').scrollLeft,sy:$('cvw').scrollTop,moved:false};cv.setPointerCapture(e.pointerId);if(can()){hover=pt(e);draw()}};
+const ptrs=new Map();let pinch=null;
+cv.onpointerdown=e=>{
+  ptrs.set(e.pointerId,[e.clientX,e.clientY]);cv.setPointerCapture(e.pointerId);
+  if(ptrs.size==2){const [a,b]=[...ptrs.values()];pinch={d:Math.hypot(a[0]-b[0],a[1]-b[1]),z:zoom};pan=null;hover=null;return}
+  pan={x:e.clientX,y:e.clientY,sx:$('cvw').scrollLeft,sy:$('cvw').scrollTop,moved:false};if(can()){hover=pt(e);draw()}
+};
 cv.onpointermove=e=>{
+  if(ptrs.has(e.pointerId))ptrs.set(e.pointerId,[e.clientX,e.clientY]);
+  if(pinch){ /* pincement : zoom manuel (ignoré si la taille est verrouillée) */
+    if(ptrs.size>=2&&!zoomLocked){const [a,b]=[...ptrs.values()],d=Math.hypot(a[0]-b[0],a[1]-b[1]);if(pinch.d>0)setZoom(pinch.z*d/pinch.d)}
+    return;
+  }
   if(pan&&e.buttons&&zoom>1){ /* zoom : un glissement déplace le terrain, un simple appui pose le point */
     const dx=e.clientX-pan.x,dy=e.clientY-pan.y;
     if(pan.moved||Math.hypot(dx,dy)>PAN_PX){pan.moved=true;hover=null;$('cvw').scrollLeft=pan.sx-dx;$('cvw').scrollTop=pan.sy-dy;draw();return}
   }
   if(!can())return;hover=pt(e);draw();
 };
-cv.onpointerup=e=>{const moved=pan&&pan.moved;pan=null;if(moved){hover=null;draw();return}const p=pt(e);hover=null;place(p);draw()};
+cv.onpointerup=e=>{ptrs.delete(e.pointerId);if(pinch){if(!ptrs.size)pinch=null;pan=null;hover=null;draw();return}const moved=pan&&pan.moved;pan=null;if(moved){hover=null;draw();return}const p=pt(e);hover=null;place(p);draw()};
 cv.onpointerleave=()=>{hover=null;draw()};
-cv.onpointercancel=()=>{hover=null;pan=null;draw()};
+cv.onpointercancel=e=>{ptrs.delete(e.pointerId);if(!ptrs.size)pinch=null;hover=null;pan=null;draw()};
 window.addEventListener('resize',draw);
 
 const readOpts=()=>{
@@ -671,17 +681,31 @@ function undo(){
   S=null;saveLocal();upd();
 }
 $('undo').onclick=undo;
-const zoomLabel=()=>$('zoom').textContent='🔍 Zoom ×'+zoom;
-$('zoom').onclick=()=>{zoom=ZOOMS[(ZOOMS.indexOf(zoom)+1)%ZOOMS.length];zoomLabel();dirty=true;draw()};
+/* Zoom manuel (boutons − / +, pincement, Ctrl+molette) ; le bouton cadenas verrouille / déverrouille la taille choisie */
+let zoomLocked=false;
+const zs=jget('g2p.zoom',null);if(zs){zoom=Math.min(ZOOM_MAX,Math.max(ZOOM_MIN,+zs.z||1));zoomLocked=!!zs.lock}
+function zoomLabel(){
+  $('zoomLock').textContent=zoomLocked?'🔒 Zoom ×'+zoom.toFixed(1):'🔓 Zoom libre';$('zoomLock').setAttribute('aria-pressed',zoomLocked);
+  $('zoomIn').disabled=zoomLocked||zoom>=ZOOM_MAX;$('zoomOut').disabled=zoomLocked||zoom<=ZOOM_MIN;
+  jset('g2p.zoom',{z:zoom,lock:zoomLocked});
+}
+function setZoom(z){
+  z=Math.min(ZOOM_MAX,Math.max(ZOOM_MIN,z));if(z===zoom||zoomLocked)return;
+  const w=$('cvw'),fx=(w.scrollLeft+w.clientWidth/2)/Math.max(1,w.scrollWidth),fy=(w.scrollTop+w.clientHeight/2)/Math.max(1,w.scrollHeight);
+  zoom=z;dirty=true;zoomLabel();paint();
+  w.scrollLeft=fx*w.scrollWidth-w.clientWidth/2;w.scrollTop=fy*w.scrollHeight-w.clientHeight/2; /* on garde le centre de la vue */
+}
+$('zoomIn').onclick=()=>setZoom(zoom*ZOOM_STEP);
+$('zoomOut').onclick=()=>setZoom(zoom/ZOOM_STEP);
+$('zoomLock').onclick=()=>{zoomLocked=!zoomLocked;zoomLabel()};
+$('cvw').addEventListener('wheel',e=>{if(e.ctrlKey||e.metaKey){e.preventDefault();setZoom(zoom*(e.deltaY<0?ZOOM_STEP:1/ZOOM_STEP))}},{passive:false});
 
 /* ===== Puzzles « capture en 1 coup » ===== */
 const aiIntel=()=>{const a=loadAI();return Math.min(10,Math.floor(Math.sqrt(a.games))+Math.floor(Object.keys(a.book).length/300)+Math.min(3,a.st.w))}; /* « intelligence » = expérience de l'IA */
 let puzs=[],puzBusy=false;
 function renderPuz(){
-  const sv=jget('g2p.puzn',0),i0=aiIntel(),sp=E.puzzleSpec(i0);
-  const info=document.createElement('p');info.textContent='Intelligence de l’IA : '+i0+'/10 · puzzles générés par l’IA : capture de '+sp.goal+' point'+(sp.goal>1?'s':'')+' en un coup · '+sv+' résolu'+(sv>1?'s':'');
   const gen=document.createElement('button');gen.type='button';gen.className='pri';gen.disabled=puzBusy;gen.textContent=puzBusy?'L’IA prépare un puzzle…':'Nouveau puzzle de l’IA';gen.onclick=newPuzzle;
-  $('puzList').replaceChildren(info,gen,...puzs.map((p,i)=>{const b=document.createElement('button');b.type='button';b.textContent='Rejouer #'+(i+1)+' (IA '+p.intel+', '+p.goal+' pt)'+(p.done?' ✅':'');b.onclick=()=>startPuzzle(i);return b}));
+  $('puzList').replaceChildren(gen);
 }
 function newPuzzle(){
   if(puzBusy)return;puzBusy=true;renderPuz();
