@@ -112,7 +112,7 @@ body.board-fs #chatToasts{position:fixed;z-index:10030;top:calc(12px + env(safe-
   #onlinePanel{grid-area:side;align-self:start;position:sticky;top:12px;margin:0;min-width:0}
   #onlinePanel[hidden]{display:none!important}
   .acts{grid-area:actions}
-  #game.board-fullscreen{display:grid;max-width:none;grid-template-columns:minmax(0,1fr) minmax(280px,340px);grid-template-areas:"scores scores" "dock dock" "board side" "controls side" "status side" "insight side" "notice side" "actions actions"}
+  #game.board-fullscreen{display:grid;max-width:none;grid-template-columns:minmax(0,1fr) minmax(280px,340px);grid-template-areas:"scores scores" "dock dock" "board side" "controls side" "status side" "notice side" "actions actions"}
   #game.board-fullscreen #cvw{max-height:76dvh}
   #game.board-fullscreen #bar{position:sticky;top:0;z-index:65;padding:7px;border:1px solid rgba(5,217,232,.2);border-radius:13px;background:rgba(8,7,23,.76);backdrop-filter:blur(14px)}
 }
