@@ -10,7 +10,7 @@ function zkey(kind,index,value){
   return z>>>0;
 }
 function scalarHash(s){
-  let h=zkey(10,s.w,s.h)^zkey(11,0,s.cur)^zkey(12,0,s.bonus?1:0)^zkey(13,0,s.combo||0);
+  let h=zkey(10,s.w,s.h)^zkey(11,0,s.cur)^zkey(12,0,s.bonus?1:0)^zkey(13,0,s.combo||0)^zkey(16,0,s.N)^zkey(17,0,s.tm?1:0);
   for(let i=0;i<s.sc.length;i++)h^=zkey(14,i,s.sc[i])^zkey(15,i,(s.terr||[])[i]||0);
   return h>>>0;
 }
@@ -126,7 +126,7 @@ function apply(s,[x,y]){
   if(!g)for(let u=0;u<K;u++){ /* piège : point posé dans une zone déjà fermée par un adversaire */
     if(u==t)continue;
     const c=scan(s,u,[x,y])[0]; /* early-exit : seule la composante du point nous intéresse */
-    if(c){s.d[y][x]=true;s.sc[u]++;if(!s.big[u])s.big[u]=1;s.loops.push({t:u,c});mark(s,c,u);s.cap=[[x,y]];s.capT=u;break}
+    if(c){const oo=s.o[y][x],od=s.d[y][x],ob=s.blk[y][x];s.d[y][x]=true;updateCellHash(s,x,y,oo,od,ob);s.sc[u]++;if(!s.big[u])s.big[u]=1;s.loops.push({t:u,c});mark(s,c,u);s.cap=[[x,y]];s.capT=u;break}
   }
   s.bonus=g>0;s.combo=s.bonus?s.combo+1:0;if(!s.bonus)s.cur=(s.cur+1)%s.N; /* capture = le même joueur rejoue */
   updateScalarHash(s,before);
@@ -314,7 +314,7 @@ function aStarRoute(s,start,goal){
 function forecastOpponent(s,opponent,horizon=FUTURE_HORIZON,deadline=Infinity){
  let beam=[{state:clone(s),moves:[],score:0}],projected=new Map();
  for(let turn=0;turn<horizon&&nowMs()<deadline;turn++){const next=[];
-  for(const node of beam){const state=node.state;state.cur=opponent;const ranked=[];
+  for(const node of beam){const state=node.state;state.cur=opponent;state._hash=computeHash(state);const ranked=[];
    for(const move of cands(state).list){const child=clone(state),before=child.sc[opponent];if(!apply(child,move))continue;
     const gain=child.sc[opponent]-before,adj=links(state,move[0],move[1],opponent),score=node.score+gain*8+adj*.25;
     ranked.push({state:child,moves:[...node.moves,move],score})}
@@ -339,7 +339,7 @@ function aiMove(s,rnd=Math.random,P){
   for(const [x,y] of cand){
     const a=clone(s);apply(a,[x,y]);
     let v=(a.sc[t]-s.sc[t])*w[0]-(a.sc[opp]-s.sc[opp])*w[1];
-    const b=clone(s);b.cur=opp;apply(b,[x,y]);v+=(b.sc[opp]-s.sc[opp])*w[2]*L.block; /* case où l'adversaire capturerait */
+    const b=clone(s);b.cur=opp;b._hash=computeHash(b);apply(b,[x,y]);v+=(b.sc[opp]-s.sc[opp])*w[2]*L.block; /* case où l'adversaire capturerait */
     for(const [dx,dy] of N8){const u=x+dx,q=y+dy;if(u<0||q<0||u>=W||q>=H)continue;const p=s.o[q][u];if(p==t+1)v+=w[3];else if(p)v+=w[4]}
     const e=L.book&&book&&book[patKey(s,x,y,t)],se=L.book&&strategyBook&&strategyBook[strategyKey(s,x,y,t)]||L.book&&book&&book[strategyKey(s,x,y,t)];
     if(e)v+=w[5]*Math.max(-2,Math.min(3,bookValue(e)));
