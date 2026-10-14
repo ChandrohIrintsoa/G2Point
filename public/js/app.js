@@ -1222,9 +1222,14 @@ async function cloudPull(force){
     const res=await fetch(cloudUrl()+'/api/ai');if(!res.ok)return;
     const rm=await res.json(),a=loadAI();
     if(rm&&rm.schema===2&&rm.book&&typeof rm.book==='object'){
-      for(const [key,value] of Object.entries(rm.book)){if(key.startsWith('S|'))a.sbook[key]=value;else a.book[key]=value}
+      for(const [key,value] of Object.entries(rm.book)){
+        if(!Array.isArray(value)||value.length<4)continue;
+        const count=Number(value[0]),gain=Number(value[1]),wins=Number(value[2]),lastSeen=Number(value[3]);
+        if(!Number.isSafeInteger(count)||count<3||count>10000000||!Number.isFinite(gain)||!Number.isFinite(wins)||wins<0||wins>count||!Number.isFinite(lastSeen)||lastSeen<=0||lastSeen>Date.now()+86400000)continue;
+        if(key.startsWith('S|'))a.sbook[key]=[count,gain,wins,lastSeen];else a.book[key]=[count,gain,wins,lastSeen];
+      }
       a.games=Math.max(a.games,+rm.games||0);saveAI(a)
-    } /* les motifs stratégiques distants restent dans leur livre dédié */
+    } /* seuls les motifs distants suffisamment observés et horodatés sont fusionnés */
   }catch(e){}
 }
 setTimeout(()=>{cloudFlush();cloudPull(true);cloudBootstrap()},2500);
