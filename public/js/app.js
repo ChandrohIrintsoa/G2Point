@@ -183,7 +183,7 @@ function saveAI(a){
   a.schema=AI_SCHEMA;a.c=(Array.isArray(a.c)&&a.c.length===6?a.c:a.w).slice();
   a.opponent={...AIDEF().opponent,...(a.opponent||{})};a.log=(a.log||[]).slice(-AI_LOG_MAX);
   const trim=book=>{const ks=Object.keys(book||{});if(ks.length>AI_BOOK_MAX){ks.sort((p,q)=>(book[q][0]||0)-(book[p][0]||0));const nb={};ks.slice(0,AI_BOOK_KEEP).forEach(k=>nb[k]=book[k]);return nb}return book||{}};
-  a.book=trim(a.book);a.antiBook=trim(a.antiBook);a.sbook=trim(a.sbook);
+  a.book=trim(a.book);a.antiBook=trim(a.antiBook);a.sbook=trim(a.sbook);a.antiSBook=trim(a.antiSBook);
   jset('g2p.ai',a);cloudPersistAI(a);
 }
 function aiPick(){aiP=daily?null:(()=>{const a=loadAI(),candidate=a.pop[a.active];return{w:candidate&&candidate.w||a.w,book:a.book,antiBook:a.antiBook,antiSBook:a.antiSBook,sbook:a.sbook,opponent:a.opponent,lvl}})()}
@@ -881,11 +881,11 @@ function drawAITrainingBoard(){
   x.textAlign='right';for(let row=0;row<AI_TRAIN_H;row++)x.fillText(String(row+1),AI_TRAIN_PAD-12,AI_TRAIN_PAD+row*AI_TRAIN_STEP);
 }
 function renderAILab(){
-  const a=loadAI(),patterns=Object.keys(a.book||{}).length,weights=(a.w||[]).length,played=a.st||{g:0,w:0};
+  const a=loadAI(),patterns=Object.keys(a.book||{}).length+Object.keys(a.sbook||{}).length,weights=(a.w||[]).length,played=a.st||{g:0,w:0};
   const rate=played.g?Math.round(100*(played.w||0)/played.g):0;
   const qi=Math.round((a.pop||[]).reduce((best,p)=>Math.max(best,+p.elo||0),1200));
   const op=a.opponent||{samples:0,captures:0,cluster:0,edge:0},style=E.opponentStyle(op);
-  const stats=[['ELO IA calibré',qi+' pts'],['Parties apprises',a.st?.g||0],['Motifs IA',patterns],['Anti-motifs humains',Object.keys(a.antiBook||{}).length],['Journal récent',(a.log||[]).length+'/500'],['Population génétique',(a.pop||[]).length+' chromosomes'],['Adversaire observé',op.samples+' coups'],['Style adverse','Captures '+Math.round(style.capture*100)+' % · chaînes '+Math.round(style.cluster*100)+' %'],['Victoires IA',rate+' %']];
+  const stats=[['ELO IA calibré',qi+' pts'],['Parties apprises',a.st?.g||0],['Motifs IA',patterns],['Anti-motifs humains',Object.keys(a.antiBook||{}).length+Object.keys(a.antiSBook||{}).length],['Journal récent',(a.log||[]).length+'/500'],['Population génétique',(a.pop||[]).length+' chromosomes'],['Auto-parties cachées',a.simulations||0],['Adversaire observé',op.samples+' coups'],['Style adverse','Captures '+Math.round(style.capture*100)+' % · chaînes '+Math.round(style.cluster*100)+' %'],['Victoires IA',rate+' %']];
   const host=$('aiStats');host.replaceChildren();
   for(const [label,value] of stats){const card=document.createElement('div'),name=document.createElement('span'),v=document.createElement('strong');card.className='ai-stat';name.textContent=label;v.textContent=value;card.append(name,v);host.append(card)}
   const restore=document.createElement('button');restore.type='button';restore.textContent='Restaurer la mémoire IA précédente';restore.hidden=!jget('g2p.ai.bak',null);
