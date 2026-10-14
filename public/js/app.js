@@ -130,32 +130,69 @@ function paint(){
 const draw=()=>{raf||(raf=requestAnimationFrame(()=>{raf=0;paint()}))}; /* au plus un rendu par image */
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{COL=null;dirty=true;draw()});
 
-/* Mémoire tactique v2 : réinitialise les motifs pollués par les anciennes simulations auto et les coups humains. */
-const AI_SCHEMA=3;
-const AIDEF=()=>({schema:AI_SCHEMA,w:E.DEFAULT_W.slice(),c:null,st:{g:0,w:0},book:{},games:0,manualLessons:0,opponent:{samples:0,captures:0,cluster:0,edge:0}});
+/* Mémoire IA v4 : migration fusionnée, sauvegarde de secours et journal borné. */
+const AI_SCHEMA=4,AI_LOG_MAX=500,AI_BOOK_MAX=1500,AI_BOOK_KEEP=1200;
+const AIDEF=()=>({schema:AI_SCHEMA,w:E.DEFAULT_W.slice(),c:E.DEFAULT_W.slice(),st:{g:0,w:0},book:{},antiBook:{},sbook:{},log:[],games:0,manualLessons:0,opponent:{samples:0,captures:0,cluster:0,edge:0},pop:[],active:0,schemaHistory:[]});
+function normalizeBook(book,now){
+  const out={};if(!book||typeof book!=='object'||Array.isArray(book))return out;
+  for(const [k,v] of Object.entries(book)){if(!Array.isArray(v))continue;out[k]=[Math.max(0,Number(v[0])||0),Number(v[1])||0,Math.max(0,Number(v[2])||0),Number.isFinite(Number(v[3]))?Number(v[3]):now]}
+  return out;
+}
+function freshPopulation(weights){
+  const pop=[{w:weights.slice(),score:0,played:0,elo:1200}];
+  for(let i=1;i<8;i++)pop.push({w:E.mutate(weights,E.rng(0x475032+i*7919)),score:0,played:0,elo:1200});
+  return pop;
+}
 function loadAI(){
-  const a=jget('g2p.ai',null);
-  if(!a||!Array.isArray(a.w)||a.w.length!==6||!a.book||typeof a.book!=='object'||Array.isArray(a.book))return AIDEF();
-  /* Migration douce : conserve les leçons IA v2, ajoute simplement le profil adaptatif v3. */
-  if(a.schema!==AI_SCHEMA)return {...AIDEF(),...a,schema:AI_SCHEMA,w:a.w.every(Number.isFinite)?a.w.slice():E.DEFAULT_W.slice(),book:a.book,st:{...AIDEF().st,...(a.st||{})},opponent:{...AIDEF().opponent,...(a.opponent||{})}};
-  return {...AIDEF(),...a,schema:AI_SCHEMA,st:{...AIDEF().st,...(a.st||{})},opponent:{...AIDEF().opponent,...(a.opponent||{})}};
+  const raw=jget('g2p.ai',null),now=Date.now();
+  if(!raw||typeof raw!=='object'||Array.isArray(raw))return AIDEF();
+  const a={...AIDEF(),...raw};
+  a.w=Array.isArray(raw.w)&&raw.w.length===6&&raw.w.every(Number.isFinite)?raw.w.slice():E.DEFAULT_W.slice();
+  a.book=normalizeBook(raw.book,now);a.antiBook=normalizeBook(raw.antiBook,now);a.sbook=normalizeBook(raw.sbook,now);
+  a.st={...AIDEF().st,...(raw.st||{})};a.opponent={...AIDEF().opponent,...(raw.opponent||{})};
+  a.log=Array.isArray(raw.log)?raw.log.slice(-AI_LOG_MAX):[];
+  a.schemaHistory=Array.isArray(raw.schemaHistory)?raw.schemaHistory.slice(-12):[];
+  a.pop=Array.isArray(raw.pop)&&raw.pop.length===8&&raw.pop.every(p=>Array.isArray(p.w)&&p.w.length===6&&p.w.every(Number.isFinite))?raw.pop:freshPopulation(a.w);
+  a.active=Math.max(0,Math.min(a.pop.length-1,Number(raw.active)||0));
+  if(raw.schema!==AI_SCHEMA){
+    if(!jget('g2p.ai.bak',null))jset('g2p.ai.bak',raw);
+    a.schemaHistory.push({from:Number(raw.schema)||1,at:now});a.c=a.w.slice();a.schema=AI_SCHEMA;
+    jset('g2p.ai',a);
+  }
+  return a;
 }
 function saveAI(a){
-  a.schema=AI_SCHEMA;
-  a.opponent={...AIDEF().opponent,...(a.opponent||{})};
-  const ks=Object.keys(a.book);
-  if(ks.length>1500){ks.sort((p,q)=>a.book[q][0]-a.book[p][0]);const nb={};ks.slice(0,1200).forEach(k=>nb[k]=a.book[k]);a.book=nb}
+  a.schema=AI_SCHEMA;a.c=(Array.isArray(a.c)&&a.c.length===6?a.c:a.w).slice();
+  a.opponent={...AIDEF().opponent,...(a.opponent||{})};a.log=(a.log||[]).slice(-AI_LOG_MAX);
+  const trim=book=>{const ks=Object.keys(book||{});if(ks.length>AI_BOOK_MAX){ks.sort((p,q)=>(book[q][0]||0)-(book[p][0]||0));const nb={};ks.slice(0,AI_BOOK_KEEP).forEach(k=>nb[k]=book[k]);return nb}return book||{}};
+  a.book=trim(a.book);a.antiBook=trim(a.antiBook);a.sbook=trim(a.sbook);
   jset('g2p.ai',a);cloudPersistAI(a);
 }
-function aiPick(){aiP=daily?null:(()=>{const a=loadAI();return{w:a.w,book:a.book,opponent:a.opponent,lvl}})()}
-/* Apprentissage asymétrique : l'IA apprend ses propres coups et observe séparément les habitudes humaines. */
+function aiPick(){aiP=daily?null:(()=>{const a=loadAI();return{w:a.w,book:a.book,antiBook:a.antiBook,opponent:a.opponent,lvl}})()}
+function auditAIGame(a,win){
+  const state=E.create(W,H,N,TM),now=Date.now();
+  for(const move of moves){const player=E.tmOf(TM,state.cur),key=E.patKey(state,move[0],move[1],player),strategy=E.strategyKey(state,move[0],move[1],player);if(!E.apply(state,move))continue;a.log.push({at:now,player,key,strategy,gain:state.capT===player?state.cap.length:-state.cap.length,won:win.includes(player)})}
+  a.log=a.log.slice(-AI_LOG_MAX);
+}
+function evolveAI(a,won){
+  a.pop=a.pop.length===8?a.pop:freshPopulation(a.w);
+  const p=a.pop[a.active]||a.pop[0];p.played=(p.played||0)+1;p.score=(p.score||0)+(won?1:0);p.elo=Math.round((p.elo||1200)+24*((won?1:0)-.5));
+  a.games=(a.games||0)+1;a.active=(a.active+1)%a.pop.length;
+  if(a.games>0&&a.games%10===0){
+    const ranked=a.pop.slice().sort((x,y)=>(y.score/(y.played||1))-(x.score/(x.played||1))||y.elo-x.elo);
+    const next=ranked.slice(0,2).map(x=>({...x,w:x.w.slice()}));
+    for(let i=0;i<6;i++){const parent=ranked[i%4];next.push({w:E.mutate(parent.w,E.rng(Date.now()+i*3571+a.games)),score:0,played:0,elo:parent.elo||1200})}
+    a.pop=next;a.active=0;a.w=a.pop[0].w.slice();a.c=a.w.slice();
+  }
+}
 function learnFromGame(win,r){
   if(!ai||daily||mode!=='local'||!aiP||lvl<=0)return;
   const a=loadAI();a.st=a.st||{g:0,w:0};
   E.learn(a.book,moves,W,H,N,TM,win,1);
-  a.opponent=E.observeOpponent(a.opponent,moves,W,H,N,TM,0);
+  if(win.includes(0))E.learn(a.antiBook,moves,W,H,N,TM,win,0);
+  a.opponent=E.observeOpponent(a.opponent,moves,W,H,N,TM,0);auditAIGame(a,win);
   a.st.g++;if(win.includes(1))a.st.w++;
-  a.games=(a.games||0)+1;saveAI(a);aiPick();
+  evolveAI(a,win.includes(1));saveAI(a);aiPick();
 }
 
 /* Libellés, résultat, historique, partage */
@@ -245,15 +282,15 @@ function explainAIMove(state,move){
   const [x,y]=move,coord=String.fromCharCode(65+x)+(y+1),after=E.clone(state);
   if(!E.apply(after,move))return 'Coup '+coord+' choisi.';
   const captured=after.sc[1]-state.sc[1];
-  if(captured>0)return 'Coup '+coord+' : capture immédiate de '+captured+' point'+(captured>1?'s':'')+'.';
+  if(captured>0)return{type:'capture',details:'Coup '+coord+' : capture immédiate de '+captured+' point'+(captured>1?'s':''),confidence:.98};
   const check=E.clone(state);check.cur=0;E.apply(check,move);
   const blocked=check.sc[0]-state.sc[0];
-  if(blocked>0)return 'Coup '+coord+' : bloque une capture adverse potentielle.';
+  if(blocked>0)return{type:'block',details:'Coup '+coord+' : bloque une capture adverse potentielle',confidence:.9};
   const allies=E.links(state,x,y,1),enemies=E.links(state,x,y,0);
-  if(allies>=2)return 'Coup '+coord+' : renforce une chaîne avec '+allies+' voisin'+(allies>1?'s':'')+' allié'+(allies>1?'s':'')+'.';
-  if(enemies>0)return 'Coup '+coord+' : met la pression sur un groupe adverse proche.';
-  if(allies===1)return 'Coup '+coord+' : prolonge une chaîne et prépare de nouvelles connexions.';
-  return 'Coup '+coord+' : développe une nouvelle zone de jeu.';
+  if(allies>=2)return{type:'chain',details:'Coup '+coord+' : renforce une chaîne avec '+allies+' voisins alliés',confidence:.78};
+  if(enemies>0)return{type:'pressure',details:'Coup '+coord+' : met la pression sur un groupe adverse proche',confidence:.7};
+  if(allies===1)return{type:'develop',details:'Coup '+coord+' : prolonge une chaîne et prépare de nouvelles connexions',confidence:.62};
+  return{type:'develop',details:'Coup '+coord+' : développe une nouvelle zone de jeu',confidence:.48};
 }
 function aiTurn(){
   clearTimeout(aiTimer);
@@ -265,7 +302,7 @@ function aiTurn(){
     if(!ok())return;
     const move=E.aiMove(S,E.rng((daily?seedOf(daily):Date.now())+moves.length),aiP);
     if(!move)return;
-    insight.textContent=explainAIMove(S,move);insight.hidden=false;
+    const why=explainAIMove(S,move);insight.textContent=why.details+' · confiance '+Math.round(why.confidence*100)+' %';insight.dataset.reason=why.type;insight.hidden=false;
     moves=[...moves,move];upd();saveLocal();aiTurn();
   },AI_DELAY_MS);
 }
@@ -795,7 +832,7 @@ function renderAILab(){
   const rate=played.g?Math.round(100*(played.w||0)/played.g):0;
   const qi=Math.max(80,Math.min(180,100+Math.round(Math.log2(1+patterns)*5)+Math.round((rate-50)/5)));
   const op=a.opponent||{samples:0,captures:0,cluster:0,edge:0},style=E.opponentStyle(op);
-  const stats=[['QI de jeu',qi+' pts'],['Leçons manuelles',a.manualLessons||0],['Parties apprises',a.st?.g||0],['Motifs mémorisés',patterns],['Anticipation', '3 demi-coups · faisceau 4'],['Adversaire observé',op.samples+' coups'],['Style adverse','Capture '+Math.round(style.capture*100)+' % · chaînes '+Math.round(style.cluster*100)+' %'],['Victoires IA',rate+' %']];
+  const stats=[['QI estimé',qi+' pts'],['Parties apprises',a.st?.g||0],['Motifs IA',patterns],['Anti-motifs humains',Object.keys(a.antiBook||{}).length],['Journal récent',(a.log||[]).length+'/500'],['Population génétique',(a.pop||[]).length+' chromosomes'],['Adversaire observé',op.samples+' coups'],['Style adverse','Captures '+Math.round(style.capture*100)+' % · chaînes '+Math.round(style.cluster*100)+' %'],['Victoires IA',rate+' %']];
   const host=$('aiStats');host.replaceChildren();
   for(const [label,value] of stats){const card=document.createElement('div'),name=document.createElement('span'),v=document.createElement('strong');card.className='ai-stat';name.textContent=label;v.textContent=value;card.append(name,v);host.append(card)}
   drawAITrainingBoard();
