@@ -99,3 +99,11 @@ test('la carte prédictive produit des risques finis',()=>{
   assert.equal(map.risk.length,s.w*s.h);
   assert.ok(Array.from(map.risk).every(Number.isFinite));
 });
+
+test('le niveau Champion est disponible avec recherche renforcée',()=>{
+  assert.equal(E.LEVELS[3].name,'Champion');
+  assert.equal(E.LEVELS[3].champion,true);
+  const s=E.create(11,15,2,false);E.apply(s,[5,5]);E.apply(s,[0,0]);
+  const move=E.aiMove(s,E.rng(20261016),{lvl:3,predictive:false});
+  assert.ok(move&&E.legal(s,move[0],move[1]));
+});
