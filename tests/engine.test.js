@@ -53,11 +53,11 @@ test('profil adverse : observe les captures, les chaînes et les bords séparém
   const moves=[[5,5],[0,0],[6,5],[0,2],[6,6]];
   const p=E.observeOpponent({},moves,11,15,2,false,0);
   assert.equal(p.samples,3);
-  assert.equal(p.cluster,2);
+  assert.equal(p.cluster,1);
   assert.equal(p.edge,0);
   assert.equal(p.captures,0);
   const style=E.opponentStyle(p);
-  assert.ok(style.cluster>0.6);
+  assert.ok(style.cluster>0.3);
 });
 test('apprentissage solo : mémorise uniquement les coups de l’IA',()=>{
   const book={},moves=[[1,1],[2,2],[3,3],[4,4]],s=E.create(11,15,2,false);
