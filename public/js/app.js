@@ -647,9 +647,15 @@ document.addEventListener('pointerdown',e=>{
 setReactionsOpen(false);
 $('chatForm').addEventListener('submit',e=>{e.preventDefault();sendChatMessage($('chatInput').value)});
 document.addEventListener('keydown',e=>{
-  if(e.key!=='Escape')return;
-  closeChatPopup();$('aiLab').hidden=true;setReactionsOpen(false);
-  if(isBoardFullscreen()&&!document.fullscreenElement)setBoardFullscreen(false); /* repli sans API plein écran (ex. iPhone) */
+  if(e.key==='Escape'){
+    closeChatPopup();$('aiLab').hidden=true;setReactionsOpen(false);
+    if(isBoardFullscreen()&&!document.fullscreenElement)setBoardFullscreen(false); /* repli sans API plein écran (ex. iPhone) */
+    return;
+  }
+  const target=e.target,typing=target&&(target.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
+  if(!typing&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&e.key.toLowerCase()==='f'&&!$('game').hidden){
+    e.preventDefault();toggleBoardFullscreen();
+  }
 });
 $('gameDockToggle').onclick=()=>{const panel=$('gameDockPanel'),open=panel.hidden;panel.hidden=!open;$('gameDockToggle').setAttribute('aria-expanded',String(open));$('gameDockToggle').textContent=open?'☰ Fermer':'☰ Menu'};
 $('dockFullscreen').onclick=()=>$('boardFullscreen').click();
