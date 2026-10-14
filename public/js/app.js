@@ -132,7 +132,7 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{COL=nu
 
 /* Mémoire IA v4 : migration fusionnée, sauvegarde de secours et journal borné. */
 const AI_SCHEMA=4,AI_LOG_MAX=500,AI_BOOK_MAX=1500,AI_BOOK_KEEP=1200;
-const AIDEF=()=>({schema:AI_SCHEMA,w:E.DEFAULT_W.slice(),c:E.DEFAULT_W.slice(),st:{g:0,w:0},book:{},antiBook:{},sbook:{},log:[],games:0,manualLessons:0,opponent:{samples:0,captures:0,cluster:0,edge:0},pop:[],active:0,schemaHistory:[]});
+const AIDEF=()=>({schema:AI_SCHEMA,w:E.DEFAULT_W.slice(),c:E.DEFAULT_W.slice(),st:{g:0,w:0},book:{},antiBook:{},antiSBook:{},sbook:{},log:[],games:0,manualLessons:0,opponent:{samples:0,captures:0,cluster:0,edge:0},pop:[],active:0,schemaHistory:[]});
 function normalizeBook(book,now){
   const out={};if(!book||typeof book!=='object'||Array.isArray(book))return out;
   for(const [k,v] of Object.entries(book)){if(!Array.isArray(v))continue;out[k]=[Math.max(0,Number(v[0])||0),Number(v[1])||0,Math.max(0,Number(v[2])||0),Number.isFinite(Number(v[3]))?Number(v[3]):now]}
@@ -148,7 +148,10 @@ function loadAI(){
   if(!raw||typeof raw!=='object'||Array.isArray(raw))return AIDEF();
   const a={...AIDEF(),...raw};
   a.w=Array.isArray(raw.w)&&raw.w.length===6&&raw.w.every(Number.isFinite)?raw.w.slice():E.DEFAULT_W.slice();
-  a.book=normalizeBook(raw.book,now);a.antiBook=normalizeBook(raw.antiBook,now);a.sbook=normalizeBook(raw.sbook,now);
+  a.book=normalizeBook(raw.book,now);a.antiBook=normalizeBook(raw.antiBook,now);
+  a.sbook=normalizeBook(raw.sbook,now);a.antiSBook=normalizeBook(raw.antiSBook,now);
+  /* Migration sans perte : les anciennes clés S| quittent le livre tactique pour le livre stratégique. */
+  for(const [src,dst] of [[a.book,a.sbook],[a.antiBook,a.antiSBook]])for(const [key,value] of Object.entries(src))if(key.startsWith('S|')){dst[key]=dst[key]||value;delete src[key]}
   a.st={...AIDEF().st,...(raw.st||{})};a.opponent={...AIDEF().opponent,...(raw.opponent||{})};
   a.log=Array.isArray(raw.log)?raw.log.slice(-AI_LOG_MAX):[];
   a.schemaHistory=Array.isArray(raw.schemaHistory)?raw.schemaHistory.slice(-12):[];
@@ -168,7 +171,7 @@ function saveAI(a){
   a.book=trim(a.book);a.antiBook=trim(a.antiBook);a.sbook=trim(a.sbook);
   jset('g2p.ai',a);cloudPersistAI(a);
 }
-function aiPick(){aiP=daily?null:(()=>{const a=loadAI(),candidate=a.pop[a.active];return{w:candidate&&candidate.w||a.w,book:a.book,antiBook:a.antiBook,opponent:a.opponent,lvl}})()}
+function aiPick(){aiP=daily?null:(()=>{const a=loadAI(),candidate=a.pop[a.active];return{w:candidate&&candidate.w||a.w,book:a.book,antiBook:a.antiBook,antiSBook:a.antiSBook,sbook:a.sbook,opponent:a.opponent,lvl}})()}
 function auditAIGame(a,win){
   const state=E.create(W,H,N,TM),now=Date.now();
   for(const move of moves){const player=E.tmOf(TM,state.cur),key=E.patKey(state,move[0],move[1],player),strategy=E.strategyKey(state,move[0],move[1],player);if(!E.apply(state,move))continue;a.log.push({at:now,player,key,strategy,gain:state.capT===player?state.cap.length:-state.cap.length,won:win.includes(player)})}
@@ -188,8 +191,8 @@ function evolveAI(a,won){
 function learnFromGame(win,r){
   if(!ai||daily||mode!=='local'||!aiP||lvl<=0)return;
   const a=loadAI();a.st=a.st||{g:0,w:0};
-  E.learn(a.book,moves,W,H,N,TM,win,1);
-  if(win.includes(0))E.learn(a.antiBook,moves,W,H,N,TM,win,0);
+  E.learn(a.book,moves,W,H,N,TM,win,1,a.sbook);
+  if(win.includes(0))E.learn(a.antiBook,moves,W,H,N,TM,win,0,a.antiSBook);
   a.opponent=E.observeOpponent(a.opponent,moves,W,H,N,TM,0);auditAIGame(a,win);
   a.st.g++;if(win.includes(1))a.st.w++;
   evolveAI(a,win.includes(1));saveAI(a);aiPick();
@@ -875,7 +878,7 @@ $('aiTeach').onclick=()=>{
   const s=aiTrainingState(),[x,y]=aiTraining.choice;
   if(!E.legal(s,x,y)){$('aiTrainStatus').textContent='Ce coup n’est pas légal dans cette position. Choisis une intersection vide.';return}
   const a=loadAI();
-  if(!E.teach(a.book,s,x,y,0,1)){$('aiTrainStatus').textContent='La leçon n’a pas pu être enregistrée.';return}
+  if(!E.teach(a.book,s,x,y,0,1,a.sbook)){$('aiTrainStatus').textContent='La leçon n’a pas pu être enregistrée.';return}
   a.manualLessons=(a.manualLessons||0)+1;saveAI(a);
   $('aiTrainStatus').textContent='Leçon enregistrée : '+aiCoord([x,y])+' est mémorisé comme réponse à privilégier.';
   aiTraining.choice=null;renderAILab();
