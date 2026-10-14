@@ -135,25 +135,22 @@ function bookValue(e,now=Date.now(),tau=30*864e5){
   return ((gain*1.5+wins*.8)/(count+2))*Math.exp(-age/tau);
 }
 /* Enregistre une réponse choisie par l'entraîneur dans le motif et le contexte stratégique observés. */
-function teach(book,s,x,y,t=0,quality=1){
+function teach(book,s,x,y,t=0,quality=1,strategyBook=book){
   if(!legal(s,x,y))return false;
-  const sign=quality<0?-1:1;
-  for(const key of [patKey(s,x,y,t),strategyKey(s,x,y,t)]){
-    const e=book[key]||(book[key]=[0,0,0]);
-    e[0]+=3;e[1]+=sign*6;if(sign>0)e[2]+=3;
-  }
+  const sign=quality<0?-1:1,now=Date.now();
+  record(book,patKey(s,x,y,t),sign*2,sign>0,now);
+  record(strategyBook,strategyKey(s,x,y,t),sign*2,sign>0,now);
   return true;
 }
-/* Rejoue une partie et enregistre, pour chaque coup, [fois joué, gain cumulé, victoires du joueur] */
-function learn(book,mv,w,h,n,tm,win,focusPlayer=null){
+/* Le livre tactique et le livre stratégique évoluent séparément ; l'argument optionnel préserve l'API historique. */
+function learn(book,mv,w,h,n,tm,win,focusPlayer=null,strategyBook=book){
   const s=create(w,h,n,tm);
   for(const m of mv){
-    const t=tmOf(tm,s.cur),k=patKey(s,m[0],m[1],t);
-    const sk=strategyKey(s,m[0],m[1],t);
+    const t=tmOf(tm,s.cur),k=patKey(s,m[0],m[1],t),sk=strategyKey(s,m[0],m[1],t);
     if(!apply(s,m))continue;
-    if(focusPlayer!=null&&t!==focusPlayer)continue; /* en solo, seule l'IA apprend de ses propres décisions */
+    if(focusPlayer!=null&&t!==focusPlayer)continue;
     const gain=s.capT==t?s.cap.length:-s.cap.length,won=win.includes(t);
-    record(book,k,gain,won);record(book,sk,gain,won);
+    record(book,k,gain,won);record(strategyBook,sk,gain,won);
   }
 }
 /* Profil adaptatif de l'adversaire : statistiques agrégées, sans conserver de données personnelles.
@@ -215,7 +212,7 @@ function searchBeam(s,root,depth,beam,weights,book,level,profile,ctx){
     const same=links(s,x,y,actor),enemy=links(s,x,y,1-actor),sign=actor===root?1:-1;
     h+=sign*(same*weights[3]+enemy*weights[4]);
     if(actor!==root)h-=enemy*style.capture*weights[2]*.3;
-    const key=book&&book[strategyKey(s,x,y,actor)];
+    const key=(PBook=>PBook&&PBook[strategyKey(s,x,y,actor)])(level.sbook)||book&&book[strategyKey(s,x,y,actor)];
     if(level.book&&key)h+=weights[5]*bookValue(key);
     ranked.push({next,h});
   }
@@ -252,7 +249,7 @@ function replyGain(s,opp){
   return m;
 }
 function aiMove(s,rnd=Math.random,P){
-  const W=s.w,H=s.h,t=tmOf(s.tm,s.cur),opp=1-t,w=(P&&P.w)||DEFAULT_W,book=P&&P.book,antiBook=P&&P.antiBook,L=LEVELS[(P&&P.lvl!=null)?P.lvl:1]||LEVELS[1],profile=P&&P.opponent;
+  const W=s.w,H=s.h,t=tmOf(s.tm,s.cur),opp=1-t,w=(P&&P.w)||DEFAULT_W,book=P&&P.book,strategyBook=P&&P.sbook||book,antiBook=P&&P.antiBook,antiSBook=P&&P.antiSBook,L=LEVELS[(P&&P.lvl!=null)?P.lvl:1]||LEVELS[1],profile=P&&P.opponent;
   const {any,list:c0}=cands(s),Z=P&&P.zone,cand=Z?c0.filter(([x,y])=>x>=Z[0]&&x<=Z[1]&&y>=Z[2]&&y<=Z[3]):c0; /* zone optionnelle : jeu compact (puzzles) */
   if(!any){const c=[W>>1,H>>1];return legal(s,c[0],c[1])?c:null}
   if(!cand.length){for(let y=0;y<H;y++)for(let x=0;x<W;x++)if(legal(s,x,y)&&(!Z||(x>=Z[0]&&x<=Z[1]&&y>=Z[2]&&y<=Z[3])))return[x,y];return null}
@@ -262,11 +259,11 @@ function aiMove(s,rnd=Math.random,P){
     let v=(a.sc[t]-s.sc[t])*w[0]-(a.sc[opp]-s.sc[opp])*w[1];
     const b=clone(s);b.cur=opp;apply(b,[x,y]);v+=(b.sc[opp]-s.sc[opp])*w[2]*L.block; /* case où l'adversaire capturerait */
     for(const [dx,dy] of N8){const u=x+dx,q=y+dy;if(u<0||q<0||u>=W||q>=H)continue;const p=s.o[q][u];if(p==t+1)v+=w[3];else if(p)v+=w[4]}
-    const e=L.book&&book&&book[patKey(s,x,y,t)],se=L.book&&book&&book[strategyKey(s,x,y,t)];
+    const e=L.book&&book&&book[patKey(s,x,y,t)],se=L.book&&strategyBook&&strategyBook[strategyKey(s,x,y,t)]||L.book&&book&&book[strategyKey(s,x,y,t)];
     if(e)v+=w[5]*Math.max(-2,Math.min(3,bookValue(e)));
     if(se&&se[0]>=3)v+=w[5]*.65*Math.max(-2,Math.min(3,bookValue(se)));
     /* Anti-motifs séparés : pénalise les schémas qui ont conduit à une victoire humaine. */
-    if(antiBook){const ak=antiBook[patKey(s,x,y,opp)],ask=antiBook[strategyKey(s,x,y,opp)];if(ak)v-=w[5]*1.4*Math.max(0,bookValue(ak));if(ask&&ask[0]>=2)v-=w[5]*.7*Math.max(0,bookValue(ask));}
+    if(antiBook){const ak=antiBook[patKey(s,x,y,opp)];if(ak)v-=w[5]*1.4*Math.max(0,bookValue(ak))}if(antiSBook){const ask=antiSBook[strategyKey(s,x,y,opp)];if(ask&&ask[0]>=2)v-=w[5]*.7*Math.max(0,bookValue(ask));}
     v+=rnd()*L.noise;scored.push({m:[x,y],v,cap:a.bonus});
   }
   scored.sort((p,q)=>q.v-p.v);
