@@ -91,7 +91,7 @@ function paint(){
   const c=$('cv'),wrap=$('cvw');
   const fullBoard=$('game').classList.contains('board-fullscreen');
   if(!$('game').hidden)document.querySelector('main').style.maxWidth=fullBoard?'none':Math.max(320,Math.min(900,(innerHeight-250)*(W+1)/(H+1)))+'px';
-  const bw=fullBoard?Math.min(innerWidth-24,innerHeight*.6*(W+1)/(H+1)):wrap.clientWidth;if(!bw)return; /* plein écran : 60 % de la hauteur, le reste garde scores, messages et boutons visibles */
+  const bw=fullBoard?Math.min(innerWidth-24,innerHeight*.52*(W+1)/(H+1)):wrap.clientWidth;if(!bw)return; /* plein écran : 60 % de la hauteur, le reste garde scores, messages et boutons visibles */
   wrap.classList.toggle('zoomed',zoom>1);
   const w=bw*zoom;
   cs=w/(W+1);const h=cs*(H+1),r=window.devicePixelRatio||1,pw=Math.round(w*r),ph=Math.round(h*r),now=performance.now();
@@ -130,46 +130,30 @@ function paint(){
 const draw=()=>{raf||(raf=requestAnimationFrame(()=>{raf=0;paint()}))}; /* au plus un rendu par image */
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{COL=null;dirty=true;draw()});
 
-/* IA : la mémoire ne progresse que par les leçons validées dans le laboratoire. */
-const AIDEF=()=>({w:E.DEFAULT_W.slice(),c:null,st:{g:0,w:0},book:{},games:0,manualLessons:0});
-function loadAI(){const a=jget('g2p.ai',null);return a&&a.w&&a.book?{...AIDEF(),...a}:AIDEF()}
+/* Mémoire tactique v2 : réinitialise les motifs pollués par les anciennes simulations auto et les coups humains. */
+const AI_SCHEMA=2;
+const AIDEF=()=>({schema:AI_SCHEMA,w:E.DEFAULT_W.slice(),c:null,st:{g:0,w:0},book:{},games:0,manualLessons:0});
+function loadAI(){
+  const a=jget('g2p.ai',null);
+  if(!a||!Array.isArray(a.w)||a.w.length!==6||!a.book||typeof a.book!=='object'||Array.isArray(a.book))return AIDEF();
+  if(a.schema!==AI_SCHEMA)return {...AIDEF(),w:a.w.every(Number.isFinite)?a.w.slice():E.DEFAULT_W.slice()};
+  return {...AIDEF(),...a,schema:AI_SCHEMA,st:{...AIDEF().st,...(a.st||{})}};
+}
 function saveAI(a){
+  a.schema=AI_SCHEMA;
   const ks=Object.keys(a.book);
   if(ks.length>1500){ks.sort((p,q)=>a.book[q][0]-a.book[p][0]);const nb={};ks.slice(0,1200).forEach(k=>nb[k]=a.book[k]);a.book=nb}
   jset('g2p.ai',a);cloudPersistAI(a);
 }
 function aiPick(){aiP=daily?null:(()=>{const a=loadAI();return{w:a.w,book:a.book,lvl}})()}
-/* Apprentissage combiné : parties réelles, simulations autonomes et leçons du joueur. */
+/* Apprentissage contrôlé : l'IA n'apprend que des coups qu'elle a réellement joués en mode Solo. */
 function learnFromGame(win,r){
   if(!ai||daily||mode!=='local'||!aiP||lvl<=0)return;
   const a=loadAI();a.st=a.st||{g:0,w:0};
-  E.learn(a.book,moves,W,H,N,TM,win);
-  a.st.g++;if(r==='win')a.st.w++;
+  E.learn(a.book,moves,W,H,N,TM,win,1);
+  a.st.g++;if(win.includes(1))a.st.w++;
   a.games=(a.games||0)+1;saveAI(a);aiPick();
 }
-let autoSimCount=0,autoSimBusy=false;
-function runBackgroundAISimulation(){
-  if(autoSimBusy||autoSimCount>=30||document.hidden||(ready&&mode==='local'&&S&&!over()))return;
-  autoSimBusy=true;
-  try{
-    const a=loadAI(),sw=11,sh=15,sim=E.create(sw,sh,2,false),played=[];
-    let plies=0;
-    while(plies<36&&sim.free>0){
-      const params={w:a.w,book:a.book,lvl:Math.max(0,Math.min(2,lvl||1))};
-      const move=E.aiMove(sim,E.rng(Date.now()+plies*7919+autoSimCount*104729),params);
-      if(!move||!E.legal(sim,move[0],move[1]))break;
-      played.push(move);if(!E.apply(sim,move))break;plies++;
-    }
-    if(played.length>=4){
-      const best=Math.max(...sim.sc),winners=sim.sc.map((v,i)=>v===best?i:-1).filter(i=>i>=0);
-      E.learn(a.book,played,sw,sh,2,false,winners);
-      a.games=(a.games||0)+1;a.simulations=(a.simulations||0)+1;
-      saveAI(a);autoSimCount++;
-    }
-  }catch(e){console.warn('Simulation IA interrompue',e)}
-  finally{autoSimBusy=false}
-}
-setInterval(runBackgroundAISimulation,60000);
 
 /* Libellés, résultat, historique, partage */
 const label=i=>ai&&mode=='local'&&i==1?'IA':NAMES[i];
@@ -407,6 +391,10 @@ async function purgeExpiredMessages(){
 }
 function startChatListener(){
   if(!ref||mode!=='online')return;
+  chatRows=[];chatUnread=0;
+  $('chatState').textContent='Chargement des messages…';
+  const messageBox=$('chatMessages');
+  if(messageBox){const loading=document.createElement('p');loading.className='chat-empty';loading.textContent='Chargement des messages…';messageBox.replaceChildren(loading)}
   purgeExpiredMessages();
   unsubChat&&unsubChat();firstChatSnapshot=true;
   unsubChat=ref.collection('messages').orderBy('createdAt','asc').limitToLast(100).onSnapshot(snap=>{
@@ -448,6 +436,9 @@ async function place(pt){
   }
 }
 
+/* Les notifications de discussion doivent rester au-dessus du calque de jeu en plein écran. */
+const chatToastHost=$('chatToasts');
+if(chatToastHost&&chatToastHost.parentElement!==document.body)document.body.append(chatToastHost);
 const cv=$('cv');
 const pt=e=>{const r=cv.getBoundingClientRect(),a=Math.round((e.clientX-r.left)/cs)-1,b=Math.round((e.clientY-r.top)/cs)-1;return a>=0&&b>=0&&a<W&&b<H?[a,b]:null};
 const ptrs=new Map();let pinch=null;
@@ -1072,7 +1063,7 @@ async function cloudPull(force){
   try{
     const res=await fetch(cloudUrl()+'/api/ai');if(!res.ok)return;
     const rm=await res.json(),a=loadAI();
-    if(rm&&rm.book&&typeof rm.book==='object'){a.book={...a.book,...rm.book};a.games=Math.max(a.games,+rm.games||0);saveAI(a)} /* en cas de conflit, la version partagée gagne */
+    if(rm&&rm.schema===2&&rm.book&&typeof rm.book==='object'){a.book={...a.book,...rm.book};a.games=Math.max(a.games,+rm.games||0);saveAI(a)} /* ignore les anciens motifs partagés, entraînés sur des coups non-IA */
   }catch(e){}
 }
 setTimeout(()=>{cloudFlush();cloudPull(true);cloudBootstrap()},2500);
