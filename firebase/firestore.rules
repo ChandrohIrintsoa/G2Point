@@ -143,6 +143,28 @@ service cloud.firestore {
         && request.resource.data.get('next', '').matches('^[A-HJ-NP-Z2-9]{5}$');
     }
 
+    function validGameUpdate() {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return signedIn() && (
+        (changed.hasOnly(['s1', 'name1']) && changed.hasAny(['s1', 'name1'])
+          && validSeatClaim('s1', 'name1', 2)) ||
+        (changed.hasOnly(['s2', 'name2']) && changed.hasAny(['s2', 'name2'])
+          && validSeatClaim('s2', 'name2', 3)) ||
+        (changed.hasOnly(['s3', 'name3']) && changed.hasAny(['s3', 'name3'])
+          && validSeatClaim('s3', 'name3', 4)) ||
+        (changed.hasOnly(['moves', 'cur', 'lastAt']) && changed.hasAny(['moves', 'cur', 'lastAt'])
+          && validMoveAppend()) ||
+        (changed.hasOnly(['ended']) && changed.hasAny(['ended'])
+          && validEnd()) ||
+        (changed.hasOnly(['ended', 'forfeit']) && changed.hasAny(['forfeit'])
+          && validForfeit()) ||
+        (changed.hasOnly(['ended', 'forfeit']) && changed.hasAny(['forfeit'])
+          && validResign()) ||
+        (changed.hasOnly(['next', 'nextBy']) && changed.hasAny(['next', 'nextBy'])
+          && validRematch())
+      );
+    }
+
     // Suppression d'un salon d'attente : seul son créateur peut le retirer
     // tant qu'aucun autre joueur n'a pris de siège et qu'aucun coup n'a été joué.
     function canDeleteWaitingGame() {
@@ -162,34 +184,8 @@ service cloud.firestore {
       allow get: if signedIn();
       allow list: if false;
       allow create: if gameCode.matches('^[A-HJ-NP-Z2-9]{5}$') && validNewGame();
-      // Route d'abord selon les clés modifiées : évite d'évaluer toutes les validations coûteuses
-      // à chaque écriture (le moteur Rules possède un plafond d'expressions).
-      allow update: if signedIn() && (
-        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['s1', 'name1'])
-          && request.resource.data.diff(resource.data).affectedKeys().hasAny(['s1', 'name1'])
-          && validSeatClaim('s1', 'name1', 2)) ||
-        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['s2', 'name2'])
-          && request.resource.data.diff(resource.data).affectedKeys().hasAny(['s2', 'name2'])
-          && validSeatClaim('s2', 'name2', 3)) ||
-        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['s3', 'name3'])
-          && request.resource.data.diff(resource.data).affectedKeys().hasAny(['s3', 'name3'])
-          && validSeatClaim('s3', 'name3', 4)) ||
-        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['moves', 'cur', 'lastAt'])
-          && request.resource.data.diff(resource.data).affectedKeys().hasAny(['moves', 'cur', 'lastAt'])
-          && validMoveAppend()) ||
-        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ended'])
-          && request.resource.data.diff(resource.data).affectedKeys().hasAny(['ended'])
-          && validEnd()) ||
-        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ended', 'forfeit'])
-          && request.resource.data.diff(resource.data).affectedKeys().hasAny(['forfeit'])
-          && validForfeit()) ||
-        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ended', 'forfeit'])
-          && request.resource.data.diff(resource.data).affectedKeys().hasAny(['forfeit'])
-          && validResign()) ||
-        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['next', 'nextBy'])
-          && request.resource.data.diff(resource.data).affectedKeys().hasAny(['next', 'nextBy'])
-          && validRematch())
-      );
+      // Le dispatcher ne calcule qu'une fois l'ensemble des clés modifiées.
+      allow update: if validGameUpdate();
       allow delete: if canDeleteWaitingGame();
 
       match /messages/{messageId} {
