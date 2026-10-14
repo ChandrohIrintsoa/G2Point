@@ -1,0 +1,32 @@
+name: Tests G2Point
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
+      - name: Installer Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Installer Java pour l'émulateur Firestore
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Installer les dépendances
+        run: npm install --no-audit --no-fund
+      - name: Exécuter les tests moteur et Firestore
+        run: npx --yes firebase-tools emulators:exec --only firestore --project g2p-test "npm test"
