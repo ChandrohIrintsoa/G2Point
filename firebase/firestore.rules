@@ -145,23 +145,25 @@ service cloud.firestore {
 
     function validGameUpdate() {
       let changed = request.resource.data.diff(resource.data).affectedKeys();
+      let cur = resource.data.get('cur', 0);
+      let seats = [resource.data.s0, resource.data.s1, resource.data.s2, resource.data.s3];
+      let f = request.resource.data.get('forfeit', -1);
       return signedIn() && (
-        (changed.hasOnly(['s1', 'name1']) && changed.hasAny(['s1', 'name1'])
-          && validSeatClaim('s1', 'name1', 2)) ||
-        (changed.hasOnly(['s2', 'name2']) && changed.hasAny(['s2', 'name2'])
-          && validSeatClaim('s2', 'name2', 3)) ||
-        (changed.hasOnly(['s3', 'name3']) && changed.hasAny(['s3', 'name3'])
-          && validSeatClaim('s3', 'name3', 4)) ||
-        (changed.hasOnly(['moves', 'cur', 'lastAt']) && changed.hasAny(['moves', 'cur', 'lastAt'])
-          && validMoveAppend()) ||
-        (changed.hasOnly(['ended']) && changed.hasAny(['ended'])
-          && validEnd()) ||
-        (changed.hasOnly(['ended', 'forfeit']) && changed.hasAny(['forfeit'])
-          && validForfeit()) ||
-        (changed.hasOnly(['ended', 'forfeit']) && changed.hasAny(['forfeit'])
-          && validResign()) ||
-        (changed.hasOnly(['next', 'nextBy']) && changed.hasAny(['next', 'nextBy'])
-          && validRematch())
+        changed.hasAny(['moves', 'cur', 'lastAt'])
+          ? changed.hasOnly(['moves', 'cur', 'lastAt']) && validMoveAppend()
+        : changed.hasAny(['s1', 'name1'])
+          ? changed.hasOnly(['s1', 'name1']) && validSeatClaim('s1', 'name1', 2)
+        : changed.hasAny(['s2', 'name2'])
+          ? changed.hasOnly(['s2', 'name2']) && validSeatClaim('s2', 'name2', 3)
+        : changed.hasAny(['s3', 'name3'])
+          ? changed.hasOnly(['s3', 'name3']) && validSeatClaim('s3', 'name3', 4)
+        : changed.hasAny(['forfeit'])
+          ? changed.hasOnly(['ended', 'forfeit']) && (f == cur && seats[cur] != request.auth.uid ? validForfeit() : validResign())
+        : changed.hasAny(['ended'])
+          ? changed.hasOnly(['ended']) && validEnd()
+        : changed.hasAny(['next', 'nextBy'])
+          ? changed.hasOnly(['next', 'nextBy']) && validRematch()
+        : false
       );
     }
 
