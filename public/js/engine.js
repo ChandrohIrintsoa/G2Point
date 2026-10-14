@@ -250,6 +250,57 @@ function replyGain(s,opp){
   for(const [x,y] of list){const c=clone(s);if(!apply(c,[x,y]))continue;const g=c.sc[opp]-s.sc[opp];if(g>m)m=g}
   return m;
 }
+/* Projection stratégique Dijkstra/A* : cibles imaginaires dans un rayon de 4 cases
+   et dix décisions adverses plausibles. Une projection est un scénario, pas une certitude. */
+const FUTURE_HORIZON=10,IMAGINARY_RADIUS=4,FORECAST_BEAM=3;
+function imaginaryTargets(s,player){
+ const seen=new Set(),out=[];
+ for(let y=0;y<s.h;y++)for(let x=0;x<s.w;x++)if(s.o[y][x]===player+1&&!s.d[y][x])
+  for(let dy=-4;dy<=4;dy++)for(let dx=-4;dx<=4;dx++){const a=x+dx,b=y+dy,k=b*s.w+a;if(a>=0&&b>=0&&a<s.w&&b<s.h&&legal(s,a,b)&&!seen.has(k)){seen.add(k);out.push([a,b])}}
+ return out;
+}
+function dijkstraTargets(s,player){
+ const n=s.w*s.h,dist=new Float64Array(n);dist.fill(Infinity);const targets=imaginaryTargets(s,player),open=[];
+ for(const [x,y] of targets){const k=y*s.w+x;dist[k]=0;open.push(k)}
+ const done=new Uint8Array(n);
+ while(open.length){let bi=0;for(let i=1;i<open.length;i++)if(dist[open[i]]<dist[open[bi]])bi=i;
+  const k=open.splice(bi,1)[0];if(done[k])continue;done[k]=1;const x=k%s.w,y=(k-x)/s.w;
+  for(const [dx,dy] of N8){const a=x+dx,b=y+dy;if(a<0||b<0||a>=s.w||b>=s.h||s.o[b][a]||s.blk[b][a])continue;
+   const j=b*s.w+a,nd=dist[k]+(dx&&dy?1.414:1);if(!done[j]&&nd<dist[j]){dist[j]=nd;open.push(j)}}
+ }
+ return{dist,targets};
+}
+function aStarRoute(s,start,goal){
+ const id=([x,y])=>y*s.w+x,src=id(start),dst=id(goal),n=s.w*s.h,g=new Float64Array(n),prev=new Int32Array(n),closed=new Uint8Array(n),open=[src];
+ g.fill(Infinity);g[src]=0;prev.fill(-1);
+ const h=k=>Math.hypot(k%s.w-goal[0],Math.floor(k/s.w)-goal[1]);
+ while(open.length){let bi=0;for(let i=1;i<open.length;i++)if(g[open[i]]+h(open[i])<g[open[bi]]+h(open[bi]))bi=i;
+  const k=open.splice(bi,1)[0];if(k===dst){const path=[];for(let q=k;q!==-1;q=prev[q])path.push([q%s.w,Math.floor(q/s.w)]);return path.reverse()}
+  if(closed[k])continue;closed[k]=1;const x=k%s.w,y=Math.floor(k/s.w);
+  for(const [dx,dy] of N8){const a=x+dx,b=y+dy;if(a<0||b<0||a>=s.w||b>=s.h||(s.o[b][a]&&(a!==goal[0]||b!==goal[1]))||s.blk[b][a])continue;
+   const j=b*s.w+a,ng=g[k]+(dx&&dy?1.414:1);if(ng<g[j]){g[j]=ng;prev[j]=k;open.push(j)}}
+ }
+ return[];
+}
+function forecastOpponent(s,opponent,horizon=FUTURE_HORIZON){
+ let beam=[{state:clone(s),moves:[],score:0}],projected=new Map();
+ for(let turn=0;turn<horizon;turn++){const next=[];
+  for(const node of beam){const state=node.state;state.cur=opponent;const ranked=[];
+   for(const move of cands(state).list){const child=clone(state),before=child.sc[opponent];if(!apply(child,move))continue;
+    const gain=child.sc[opponent]-before,adj=links(state,move[0],move[1],opponent),score=node.score+gain*8+adj*.25;
+    ranked.push({state:child,moves:[...node.moves,move],score})}
+   ranked.sort((a,b)=>b.score-a.score);
+   for(const v of ranked.slice(0,FORECAST_BEAM)){const [x,y]=v.moves.at(-1),k=y*s.w+x;projected.set(k,Math.max(projected.get(k)||0,1-turn/horizon));next.push(v)}
+  }
+  if(!next.length)break;next.sort((a,b)=>b.score-a.score);beam=next.slice(0,FORECAST_BEAM);
+ }
+ return{projected,lines:beam.map(x=>x.moves),horizon};
+}
+function predictiveMap(s,opponent,horizon=FUTURE_HORIZON){
+ const paths=dijkstraTargets(s,opponent),future=forecastOpponent(s,opponent,horizon),risk=new Float64Array(s.w*s.h);
+ for(let i=0;i<risk.length;i++)risk[i]=(Number.isFinite(paths.dist[i])?1/(1+paths.dist[i]):0)+(future.projected.get(i)||0)*2;
+ return{...paths,forecast:future,risk};
+}
 function aiMove(s,rnd=Math.random,P){
   const W=s.w,H=s.h,t=tmOf(s.tm,s.cur),opp=1-t,w=(P&&P.w)||DEFAULT_W,book=P&&P.book,strategyBook=P&&P.sbook||book,antiBook=P&&P.antiBook,antiSBook=P&&P.antiSBook,L=LEVELS[(P&&P.lvl!=null)?P.lvl:1]||LEVELS[1],profile=P&&P.opponent;
   const {any,list:c0}=cands(s),Z=P&&P.zone,cand=Z?c0.filter(([x,y])=>x>=Z[0]&&x<=Z[1]&&y>=Z[2]&&y<=Z[3]):c0; /* zone optionnelle : jeu compact (puzzles) */
@@ -269,6 +320,10 @@ function aiMove(s,rnd=Math.random,P){
     v+=rnd()*L.noise;scored.push({m:[x,y],v,cap:a.bonus});
   }
   scored.sort((p,q)=>q.v-p.v);
+  if(L.deep&&(!P||P.predictive!==false)){
+    const map=predictiveMap(s,opp,FUTURE_HORIZON);
+    for(const c of scored){const k=c.m[1]*W+c.m[0],risk=map.risk[k]||0;c.v+=risk*w[2]*.22;if(map.forecast.projected.has(k))c.v+=w[2]*.45}
+  }
   if(L.deep){
     /* Phase 1 : pénalité tactique immédiate, renforcée si l'adversaire est agressif. */
     const style=opponentStyle(profile),defense=1+style.capture*.35+style.cluster*.2;
@@ -318,6 +373,6 @@ function genPuzzle(rnd=Math.random,intel=0,P,maxMs=1500){
   }
   return null;
 }
-const api={genPuzzle,puzzleSpec,create,scan,apply,legal,links,tmOf,grid,clone,rng,aiMove,learn,teach,observeOpponent,opponentStyle,positionValue,bookValue,patKey,strategyKey,mutate,DEFAULT_W,LEVELS};
+const api={genPuzzle,puzzleSpec,create,scan,apply,legal,links,tmOf,grid,clone,rng,aiMove,learn,teach,observeOpponent,opponentStyle,positionValue,bookValue,patKey,strategyKey,mutate,imaginaryTargets,dijkstraTargets,aStarRoute,forecastOpponent,predictiveMap,DEFAULT_W,LEVELS};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.G2Engine=api;
 })(typeof window!=='undefined'?window:globalThis);
