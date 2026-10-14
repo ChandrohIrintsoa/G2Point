@@ -794,7 +794,8 @@ function renderAILab(){
   const a=loadAI(),patterns=Object.keys(a.book||{}).length,weights=(a.w||[]).length,played=a.st||{g:0,w:0};
   const rate=played.g?Math.round(100*(played.w||0)/played.g):0;
   const qi=Math.max(80,Math.min(180,100+Math.round(Math.log2(1+patterns)*5)+Math.round((rate-50)/5)));
-  const stats=[['QI de jeu',qi+' pts'],['Leçons manuelles',a.manualLessons||0],['Parties apprises',a.st?.g||0],['Simulations autonomes',a.simulations||0],['Motifs mémorisés',patterns],['Paramètres stratégiques',weights],['Victoires IA',rate+' %']];
+  const op=a.opponent||{samples:0,captures:0,cluster:0,edge:0},style=E.opponentStyle(op);
+  const stats=[['QI de jeu',qi+' pts'],['Leçons manuelles',a.manualLessons||0],['Parties apprises',a.st?.g||0],['Motifs mémorisés',patterns],['Anticipation', '3 demi-coups · faisceau 4'],['Adversaire observé',op.samples+' coups'],['Style adverse','Capture '+Math.round(style.capture*100)+' % · chaînes '+Math.round(style.cluster*100)+' %'],['Victoires IA',rate+' %']];
   const host=$('aiStats');host.replaceChildren();
   for(const [label,value] of stats){const card=document.createElement('div'),name=document.createElement('span'),v=document.createElement('strong');card.className='ai-stat';name.textContent=label;v.textContent=value;card.append(name,v);host.append(card)}
   drawAITrainingBoard();
@@ -827,7 +828,7 @@ $('aiBrush').onchange=()=>{
 };
 $('aiGoal').onchange=()=>setAITrainingHint(aiGoalText[$('aiGoal').value]+' Prépare la position, puis demande une analyse.');
 $('aiAnalyze').onclick=()=>{
-  const s=aiTrainingState(),a=loadAI(),m=E.aiMove(s,()=>0,{w:a.w,book:a.book,lvl:1});
+  const s=aiTrainingState(),a=loadAI(),m=E.aiMove(s,()=>0,{w:a.w,book:a.book,opponent:a.opponent,lvl:2});
   if(!m){$('aiTrainStatus').textContent='Aucun coup légal trouvé sur cette position.';return}
   aiTraining.suggestion=m;drawAITrainingBoard();
   $('aiTrainStatus').textContent='Réponse proposée par l’IA : '+aiCoord(m)+'. Sélectionne « Coup à enseigner » pour indiquer ta réponse de référence.';
