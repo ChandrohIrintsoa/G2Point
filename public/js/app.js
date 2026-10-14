@@ -177,9 +177,10 @@ function auditAIGame(a,win){
   for(const move of moves){const player=E.tmOf(TM,state.cur),key=E.patKey(state,move[0],move[1],player),strategy=E.strategyKey(state,move[0],move[1],player);if(!E.apply(state,move))continue;a.log.push({at:now,player,key,strategy,gain:state.capT===player?state.cap.length:-state.cap.length,won:win.includes(player)})}
   a.log=a.log.slice(-AI_LOG_MAX);
 }
-function evolveAI(a,won){
+function evolveAI(a,won,playerElo=1200){
   a.pop=a.pop.length===8?a.pop:freshPopulation(a.w);
-  const p=a.pop[a.active]||a.pop[0];p.played=(p.played||0)+1;p.score=(p.score||0)+(won?1:0);p.elo=Math.round((p.elo||1200)+24*((won?1:0)-.5));
+  const p=a.pop[a.active]||a.pop[0],score=won?1:0,elo=p.elo||1200,expected=1/(1+Math.pow(10,(playerElo-elo)/400));
+  p.played=(p.played||0)+1;p.score=(p.score||0)+score;p.elo=Math.round(elo+24*(score-expected));
   a.games=(a.games||0)+1;a.active=(a.active+1)%a.pop.length;a.c=a.pop[a.active].w.slice();
   if(a.games>0&&a.games%10===0){
     const ranked=a.pop.slice().sort((x,y)=>(y.score/(y.played||1))-(x.score/(x.played||1))||y.elo-x.elo);
@@ -195,7 +196,7 @@ function learnFromGame(win,r){
   if(win.includes(0))E.learn(a.antiBook,moves,W,H,N,TM,win,0,a.antiSBook);
   a.opponent=E.observeOpponent(a.opponent,moves,W,H,N,TM,0);auditAIGame(a,win);
   a.st.g++;if(win.includes(1))a.st.w++;
-  evolveAI(a,win.includes(1));saveAI(a);aiPick();
+  const playerRating=(loadProg().elo[eloKey()]||1200);evolveAI(a,win.includes(1),playerRating);saveAI(a);aiPick();
 }
 
 /* Libellés, résultat, historique, partage */
@@ -833,11 +834,14 @@ function drawAITrainingBoard(){
 function renderAILab(){
   const a=loadAI(),patterns=Object.keys(a.book||{}).length,weights=(a.w||[]).length,played=a.st||{g:0,w:0};
   const rate=played.g?Math.round(100*(played.w||0)/played.g):0;
-  const qi=Math.max(80,Math.min(180,100+Math.round(Math.log2(1+patterns)*5)+Math.round((rate-50)/5)));
+  const qi=Math.round((a.pop||[]).reduce((best,p)=>Math.max(best,+p.elo||0),1200));
   const op=a.opponent||{samples:0,captures:0,cluster:0,edge:0},style=E.opponentStyle(op);
-  const stats=[['QI estimé',qi+' pts'],['Parties apprises',a.st?.g||0],['Motifs IA',patterns],['Anti-motifs humains',Object.keys(a.antiBook||{}).length],['Journal récent',(a.log||[]).length+'/500'],['Population génétique',(a.pop||[]).length+' chromosomes'],['Adversaire observé',op.samples+' coups'],['Style adverse','Captures '+Math.round(style.capture*100)+' % · chaînes '+Math.round(style.cluster*100)+' %'],['Victoires IA',rate+' %']];
+  const stats=[['ELO IA calibré',qi+' pts'],['Parties apprises',a.st?.g||0],['Motifs IA',patterns],['Anti-motifs humains',Object.keys(a.antiBook||{}).length],['Journal récent',(a.log||[]).length+'/500'],['Population génétique',(a.pop||[]).length+' chromosomes'],['Adversaire observé',op.samples+' coups'],['Style adverse','Captures '+Math.round(style.capture*100)+' % · chaînes '+Math.round(style.cluster*100)+' %'],['Victoires IA',rate+' %']];
   const host=$('aiStats');host.replaceChildren();
   for(const [label,value] of stats){const card=document.createElement('div'),name=document.createElement('span'),v=document.createElement('strong');card.className='ai-stat';name.textContent=label;v.textContent=value;card.append(name,v);host.append(card)}
+  const restore=document.createElement('button');restore.type='button';restore.textContent='Restaurer la mémoire IA précédente';restore.hidden=!jget('g2p.ai.bak',null);
+  restore.onclick=()=>{const backup=jget('g2p.ai.bak',null);if(!backup||!confirm('Restaurer la sauvegarde IA précédente ? La mémoire actuelle sera remplacée.'))return;jset('g2p.ai',backup);aiPick();renderAILab();note('Sauvegarde IA restaurée ; elle sera migrée en douceur au prochain chargement.')};
+  host.append(restore);
   drawAITrainingBoard();
 }
 function openAILab(){renderAILab();$('aiLab').hidden=false;$('aiTrainStatus').textContent='Made by ChaIr.'}
@@ -1135,7 +1139,7 @@ async function cloudBootstrap(){
       const A=loadAI(),T=aiRemote.training;
       /* Récupère éventuellement les poids, jamais les anciens compteurs : ils incluaient des parties non-IA. */
       if(Array.isArray(T.weights)&&T.weights.length===6&&T.weights.every(Number.isFinite)){
-        A.w=T.weights;jset('g2p.ai',A);
+        A.w=T.weights;A.c=T.weights.slice();if(A.pop&&A.pop.length)A.pop[0].w=T.weights.slice();A.active=0;jset('g2p.ai',A);
       }
       cloudPersistAI(A);
     }else cloudPersistAI(loadAI());
