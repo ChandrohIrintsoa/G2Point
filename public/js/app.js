@@ -1051,9 +1051,11 @@ async function cloudBootstrap(){
     }else await cloudSyncProgress();
     if(aiRemote&&aiRemote.training){
       const A=loadAI(),T=aiRemote.training;
-      if(Array.isArray(T.weights)&&T.weights.length===6&&(+T.games||0)>A.games){
-        A.w=T.weights;A.games=+T.games||0;A.st.w=+T.wins||0;jset('g2p.ai',A);
-      }else cloudPersistAI(A);
+      /* Récupère éventuellement les poids, jamais les anciens compteurs : ils incluaient des parties non-IA. */
+      if(Array.isArray(T.weights)&&T.weights.length===6&&T.weights.every(Number.isFinite)){
+        A.w=T.weights;jset('g2p.ai',A);
+      }
+      cloudPersistAI(A);
     }else cloudPersistAI(loadAI());
     renderProg();
   }catch(e){}
