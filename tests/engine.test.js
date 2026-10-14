@@ -41,6 +41,24 @@ test('IA : choix reproductible avec une graine fixe sur une position identique',
   assert.deepEqual(a,b);
   assert.ok(a&&E.legal(s,a[0],a[1]));
 });
+test('IA difficile : anticipation reproductible sur plusieurs demi-coups',()=>{
+  const s=E.create(11,15,2,false);
+  play(s,[[5,5],[5,4],[1,1],[4,5],[2,2],[6,5],[3,3]]);
+  const a=E.aiMove(E.clone(s),E.rng(91357),{lvl:2});
+  const b=E.aiMove(E.clone(s),E.rng(91357),{lvl:2});
+  assert.deepEqual(a,b);
+  assert.ok(a&&E.legal(s,a[0],a[1]));
+});
+test('profil adverse : observe les captures, les chaînes et les bords séparément',()=>{
+  const moves=[[5,5],[0,0],[6,5],[0,2],[6,6]];
+  const p=E.observeOpponent({},moves,11,15,2,false,0);
+  assert.equal(p.samples,3);
+  assert.equal(p.cluster,2);
+  assert.equal(p.edge,0);
+  assert.equal(p.captures,0);
+  const style=E.opponentStyle(p);
+  assert.ok(style.cluster>0.6);
+});
 test('apprentissage solo : mémorise uniquement les coups de l’IA',()=>{
   const book={},moves=[[1,1],[2,2],[3,3],[4,4]],s=E.create(11,15,2,false);
   const humanKey=E.patKey(s,1,1,0);E.apply(s,moves[0]);
