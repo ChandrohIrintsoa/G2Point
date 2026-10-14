@@ -58,3 +58,11 @@ test('le livre stratégique séparé est accepté par la recherche profonde',()=
   const move=E.aiMove(E.clone(s),E.rng(20261015),{lvl:2,sbook});
   assert.ok(move&&E.legal(s,move[0],move[1]));
 });
+
+test('le livre conserve ses entrées après plusieurs parties rejouées',()=>{
+  const book={},moves=[[5,5],[0,0],[5,4],[0,2],[4,5],[0,4]];
+  for(let game=0;game<25;game++)E.learn(book,moves,11,15,2,false,[game%2],1);
+  assert.ok(Object.keys(book).length>0);
+  assert.ok(Object.values(book).every(entry=>entry[0]>0&&entry.length===4));
+  assert.ok(Object.values(book).some(entry=>entry[0]>=25));
+});
