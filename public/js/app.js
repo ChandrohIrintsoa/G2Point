@@ -90,7 +90,7 @@ function paint(){
   if(!S)return;
   const c=$('cv'),wrap=$('cvw');
   const fullBoard=$('game').classList.contains('board-fullscreen');
-  if(!$('game').hidden)document.querySelector('main').style.maxWidth=fullBoard?'none':Math.max(320,Math.min(900,(innerHeight-250)*(W+1)/(H+1)))+'px';
+  if(!$('game').hidden)document.querySelector('main').style.maxWidth=fullBoard?'none':innerWidth>=960?'min(1280px, calc(100vw - 48px))':Math.max(320,Math.min(900,(innerHeight-250)*(W+1)/(H+1)))+'px';
   const bw=fullBoard?Math.min(innerWidth-24,innerHeight*.52*(W+1)/(H+1)):wrap.clientWidth;if(!bw)return; /* plein écran : 60 % de la hauteur, le reste garde scores, messages et boutons visibles */
   wrap.classList.toggle('zoomed',zoom>1);
   const w=bw*zoom;
@@ -238,13 +238,32 @@ function dailyOpening(d){ /* 6 pierres posées au hasard (graine = date), identi
   while(out.length<DAILY_STONES){const x=3+((r()*(W-6))|0),y=4+((r()*(H-8))|0);if(!used.has(y*W+x)){used.add(y*W+x);out.push([x,y])}}
   return out;
 }
+function explainAIMove(state,move){
+  const [x,y]=move,coord=String.fromCharCode(65+x)+(y+1),after=E.clone(state);
+  if(!E.apply(after,move))return 'Coup '+coord+' choisi.';
+  const captured=after.sc[1]-state.sc[1];
+  if(captured>0)return 'Coup '+coord+' : capture immédiate de '+captured+' point'+(captured>1?'s':'')+'.';
+  const check=E.clone(state);check.cur=0;E.apply(check,move);
+  const blocked=check.sc[0]-state.sc[0];
+  if(blocked>0)return 'Coup '+coord+' : bloque une capture adverse potentielle.';
+  const allies=E.links(state,x,y,1),enemies=E.links(state,x,y,0);
+  if(allies>=2)return 'Coup '+coord+' : renforce une chaîne avec '+allies+' voisin'+(allies>1?'s':'')+' allié'+(allies>1?'s':'')+'.';
+  if(enemies>0)return 'Coup '+coord+' : met la pression sur un groupe adverse proche.';
+  if(allies===1)return 'Coup '+coord+' : prolonge une chaîne et prépare de nouvelles connexions.';
+  return 'Coup '+coord+' : développe une nouvelle zone de jeu.';
+}
 function aiTurn(){
   clearTimeout(aiTimer);
-  const ok=()=>mode==='local'&&ai&&!!S&&!over()&&S.cur===1;
+  const insight=$('aiInsight');
+  if(!ai){insight.hidden=true;insight.textContent='';return}
+  const ok=()=>mode==='local'&&!!S&&!over()&&S.cur===1;
   if(!ok())return;
   aiTimer=setTimeout(()=>{
     if(!ok())return;
-    const m=E.aiMove(S,E.rng((daily?seedOf(daily):Date.now())+moves.length),aiP);if(!m)return;moves=[...moves,m];upd();saveLocal();aiTurn();
+    const move=E.aiMove(S,E.rng((daily?seedOf(daily):Date.now())+moves.length),aiP);
+    if(!move)return;
+    insight.textContent=explainAIMove(S,move);insight.hidden=false;
+    moves=[...moves,move];upd();saveLocal();aiTurn();
   },AI_DELAY_MS);
 }
 
@@ -322,7 +341,7 @@ function upd(){
 
 const note=t=>($('menu').hidden?$('gnote'):$('mnote')).textContent=t||'';
 const err=e=>{const c=e&&e.code;let m=c=='permission-denied'?'Accès refusé : vérifiez la configuration et les règles Firestore.':c=='functions/unauthenticated'?'Connectez-vous puis réessayez.':((e&&(e.message||e.code))||String(e));note('Erreur : '+m)};
-function show(g){$('menu').hidden=g;$('game').hidden=!g;$('gameDock').hidden=!g;note('');if(!g){document.querySelector('main').style.maxWidth='';document.title='G2Point — Jeu de points';refreshResume();renderLive();renderProg();fillThemes()}}
+function show(g){$('menu').hidden=g;$('game').hidden=!g;$('gameDock').hidden=!g;note('');if(!g){$('aiInsight').hidden=true;$('aiInsight').textContent='';document.querySelector('main').style.maxWidth='';document.title='G2Point — Jeu de points';refreshResume();renderLive();renderProg();fillThemes()}}
 const seatsOf=v=>Array.from({length:v.n},(_,k)=>v['s'+k]);
 
 function sub(){
@@ -588,20 +607,23 @@ const validConfig=!!(FIREBASE_CONFIG.apiKey&&FIREBASE_CONFIG.authDomain&&FIREBAS
     try{db.enablePersistence({synchronizeTabs:true}).catch(()=>{})}catch(e){} /* cache hors-ligne : résiste aux coupures réseau */
     try{an=firebase.analytics()}catch(e){} /* mesure de rétention (measurementId déjà configuré) */
     auth.onAuthStateChanged(user=>{
-      if(user){cid=user.uid;authReady=true;$('bNew').disabled=false;$('bJoin').disabled=false;$('bQuick').disabled=false;renderLive();$('onlineSetup').hidden=true;$('hint').hidden=false;$('onlineState').textContent='Connexion prête. Créez une partie ou saisissez un code.'}
-      else{cid='';authReady=false;$('bNew').disabled=true;$('bJoin').disabled=true;$('bQuick').disabled=true;$('onlineSetup').hidden=false;$('hint').hidden=true}
+      if(user){cid=user.uid;authReady=true;$('bNew').disabled=false;$('bJoin').disabled=false;$('bQuick').disabled=false;renderLive();$('onlineSetup').hidden=true;$('hint').hidden=false;setOnlineState('Connecté · créez une partie ou saisissez un code.','ready')}
+      else{cid='';authReady=false;$('bNew').disabled=true;$('bJoin').disabled=true;$('bQuick').disabled=true;$('onlineSetup').hidden=false;$('hint').hidden=true;setOnlineState('Connexion au service en cours…','connecting')}
     });
     auth.signInAnonymously().catch(e=>{
       console.error(e);$('onlineSetup').hidden=false;
       $('onlineSetup').textContent='Connexion Firebase impossible. Activez la connexion anonyme dans Authentication > Sign-in method, puis rechargez la page.';
-      $('onlineState').textContent='Connexion indisponible.';
+      setOnlineState('Connexion indisponible · le mode local reste disponible.','offline');
     });
-  }catch(e){console.error(e);$('onlineState').textContent='Configuration Firebase invalide.'}
+  }catch(e){console.error(e);setOnlineState('Configuration Firebase invalide.','offline')}
 }else{
   $('onlineSetup').hidden=false;
-  $('onlineState').textContent='Mode local disponible. Configurez Firebase pour activer le multijoueur en ligne.';
+  setOnlineState('Mode local disponible · configurez Firebase pour jouer en ligne.','offline');
 }
 
+function setOnlineState(message,state='connecting'){
+  const pill=$('onlineState');pill.textContent=message;pill.dataset.state=state;
+}
 function openChatPopup(){if(mode!=='online'||!ready)return;chatUnread=0;$('chatBadge').hidden=true;$('chatDialog').hidden=false;renderChatMessages(chatRows);renderOnlinePanel(gameData||{n:N});$('chatInput').focus({preventScroll:true})}
 function closeChatPopup(){$('chatDialog').hidden=true;$('chatInput').blur()}
 $('chatOpen').onclick=openChatPopup;
