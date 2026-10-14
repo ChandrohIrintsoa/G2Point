@@ -62,8 +62,7 @@ service cloud.firestore {
     }
 
     function validSeatClaim(seat, name, minimumPlayers) {
-      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([seat, name])
-        && resource.data.n >= minimumPlayers
+      return resource.data.n >= minimumPlayers
         && resource.data[seat] == ''
         && request.resource.data[seat] == request.auth.uid
         && validName(request.resource.data[name])
@@ -90,7 +89,6 @@ service cloud.firestore {
         && nc is int
         && (nc == oc || nc == (oc + 1) % resource.data.n)
         && resource.data.ended == false
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['moves', 'cur', 'lastAt'])
         && request.resource.data.lastAt == request.time
         && newMoves is list
         && newMoves.size() == oldMoves.size() + 1
@@ -105,7 +103,6 @@ service cloud.firestore {
     function validEnd() {
       return isPlayer(resource.data)
         && resource.data.ended == false
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ended'])
         && request.resource.data.ended == true;
     }
 
@@ -116,7 +113,6 @@ service cloud.firestore {
       return isPlayer(resource.data)
         && resource.data.ended == false
         && allSeated(resource.data)
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ended', 'forfeit'])
         && request.resource.data.ended == true
         && request.resource.data.forfeit == c
         && [resource.data.s0, resource.data.s1, resource.data.s2, resource.data.s3][c] != request.auth.uid
@@ -130,7 +126,6 @@ service cloud.firestore {
       return isPlayer(resource.data)
         && resource.data.ended == false
         && allSeated(resource.data)
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ended', 'forfeit'])
         && request.resource.data.ended == true
         && f is int
         && f >= 0 && f < resource.data.n
@@ -141,12 +136,112 @@ service cloud.firestore {
     function validRematch() {
       return isPlayer(resource.data)
         && (resource.data.ended == true || resource.data.moves.size() >= resource.data.w * resource.data.h)
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['next', 'nextBy'])
         && resource.data.get('next', '') == ''
         && resource.data.get('nextBy', '') == ''
-        && request.resource.data.next is string
-        && request.resource.data.nextBy == request.auth.uid
-        && request.resource.data.next.matches('^[A-HJ-NP-Z2-9]{5}$');
+        && request.resource.data.get('next', '') is string
+        && request.resource.data.get('nextBy', '') == request.auth.uid
+        && request.resource.data.get('next', '').matches('^[A-HJ-NP-Z2-9]{5}
+    }
+
+    // Suppression d'un salon d'attente : seul son créateur peut le retirer
+    // tant qu'aucun autre joueur n'a pris de siège et qu'aucun coup n'a été joué.
+    function canDeleteWaitingGame() {
+      return signedIn()
+        && resource.data.s0 == request.auth.uid
+        && resource.data.s1 == ''
+        && resource.data.s2 == ''
+        && resource.data.s3 == ''
+        && resource.data.moves is list
+        && resource.data.moves.size() == 0
+        && resource.data.ended == false;
+    }
+
+    match /games/{gameCode} {
+      // Lecture par code uniquement (get) : impossible de lister ou d'énumérer les parties.
+      // Seuls les joueurs assis modifient l'état, hormis la prise d'un siège libre.
+      allow get: if signedIn();
+      allow list: if false;
+      allow create: if gameCode.matches('^[A-HJ-NP-Z2-9]{5}$') && validNewGame();
+      // Route d'abord selon les clés modifiées : évite d'évaluer toutes les validations coûteuses
+      // à chaque écriture (le moteur Rules possède un plafond d'expressions).
+      allow update: if signedIn() && (
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['s1', 'name1'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasAny(['s1', 'name1'])
+          && validSeatClaim('s1', 'name1', 2)) ||
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['s2', 'name2'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasAny(['s2', 'name2'])
+          && validSeatClaim('s2', 'name2', 3)) ||
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['s3', 'name3'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasAny(['s3', 'name3'])
+          && validSeatClaim('s3', 'name3', 4)) ||
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['moves', 'cur', 'lastAt'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasAny(['moves', 'cur', 'lastAt'])
+          && validMoveAppend()) ||
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ended'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasAny(['ended'])
+          && validEnd()) ||
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ended', 'forfeit'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasAny(['forfeit'])
+          && validForfeit()) ||
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ended', 'forfeit'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasAny(['forfeit'])
+          && validResign()) ||
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['next', 'nextBy'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasAny(['next', 'nextBy'])
+          && validRematch())
+      );
+      allow delete: if canDeleteWaitingGame();
+
+      match /messages/{messageId} {
+        function parentExists() {
+          return exists(/databases/$(database)/documents/games/$(gameCode));
+        }
+        function parentData() {
+          return get(/databases/$(database)/documents/games/$(gameCode)).data;
+        }
+        allow read: if signedIn() && parentExists() && isPlayer(parentData());
+        allow create: if signedIn()
+          && parentExists()
+          && isPlayer(parentData())
+          && request.resource.data.keys().hasOnly(['uid', 'text', 'createdAt', 'expireAt'])
+          && request.resource.data.keys().hasAll(['uid', 'text', 'createdAt', 'expireAt'])
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.text is string
+          && request.resource.data.text.size() >= 1
+          && request.resource.data.text.size() <= 500
+          && request.resource.data.createdAt == request.time
+          && validExpiry();
+        allow update: if false;
+        allow delete: if signedIn() && parentExists() && isPlayer(parentData())
+          && ((resource.data.expireAt is timestamp && resource.data.expireAt <= request.time)
+            || (resource.data.createdAt is timestamp && resource.data.createdAt + duration.value(1, 'd') <= request.time));
+      }
+    }
+
+    // Partie rapide : annonces publiques (sans code), purgées par TTL sur expireAt ou supprimées par l'hôte.
+    // La liste est autorisée mais ne révèle que des informations non sensibles (hôte anonyme, format de la partie).
+    match /lobby/{lobbyCode} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && lobbyCode.matches('^[A-HJ-NP-Z2-9]{5}$')
+        && request.resource.data.keys().hasOnly(['host', 'n', 'tm', 'w', 'h', 'createdAt', 'expireAt'])
+        && request.resource.data.keys().hasAll(['host', 'n', 'tm', 'w', 'h', 'createdAt', 'expireAt'])
+        && request.resource.data.host == request.auth.uid
+        && request.resource.data.n in [2, 3, 4]
+        && request.resource.data.tm is bool
+        && request.resource.data.w in [11, 17, 23]
+        && request.resource.data.h in [15, 23, 31]
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.expireAt is timestamp
+        && request.resource.data.expireAt > request.time
+        && request.resource.data.expireAt <= request.time + duration.value(2, 'h')
+        && get(/databases/$(database)/documents/games/$(lobbyCode)).data.s0 == request.auth.uid;
+      allow update: if false;
+      allow delete: if signedIn() && resource.data.host == request.auth.uid;
+    }
+  }
+}
+);
     }
 
     // Suppression d'un salon d'attente : seul son créateur peut le retirer
