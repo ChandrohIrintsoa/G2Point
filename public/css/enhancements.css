@@ -71,3 +71,53 @@ body.board-fs{overflow:hidden}
 body.board-fs #chatDialog .chat-box{max-height:min(72dvh,640px)}
 body.board-fs #chatDialog .chat-messages{max-height:min(46dvh,360px);min-height:110px}
 body.board-fs #chatToasts{position:fixed;z-index:10030;top:calc(12px + env(safe-area-inset-top));right:10px}
+
+
+/* Menu regroupé : actions identifiables, hiérarchie et état de connexion lisible. */
+.menu-grid{display:grid;gap:12px;margin:12px 0 18px}
+.menu-card{min-width:0;padding:15px;border:1px solid rgba(5,217,232,.24);border-radius:16px;background:linear-gradient(145deg,rgba(23,19,55,.9),rgba(9,12,30,.92));box-shadow:0 12px 30px rgba(0,0,0,.18),inset 0 1px rgba(255,255,255,.035)}
+.menu-card h2{margin:0 0 12px;color:var(--neon);font:700 12px var(--disp);letter-spacing:.14em;text-transform:uppercase}
+.menu-card .stack{margin:0}
+.menu-card .stack>button{width:100%}
+.connection-pill{display:flex;align-items:center;gap:9px;width:fit-content;max-width:100%;margin:5px 0 10px;padding:7px 11px;border:1px solid var(--bd);border-radius:999px;background:rgba(255,255,255,.035);color:var(--mut);font-size:12px}
+.connection-pill::before{content:"";flex:0 0 9px;width:9px;height:9px;border-radius:50%;background:var(--mut);box-shadow:0 0 9px currentColor}
+.connection-pill[data-state="ready"]{color:var(--c2);border-color:color-mix(in srgb,var(--c2) 45%,transparent)}
+.connection-pill[data-state="ready"]::before{background:var(--c2)}
+.connection-pill[data-state="connecting"]{color:var(--c3)}
+.connection-pill[data-state="connecting"]::before{background:var(--c3);animation:connection-pulse 1.2s ease-in-out infinite}
+.connection-pill[data-state="offline"]{color:#ff8ca7;border-color:rgba(255,92,120,.4)}
+.connection-pill[data-state="offline"]::before{background:#ff5c78}
+@keyframes connection-pulse{50%{opacity:.35;box-shadow:0 0 2px currentColor}}
+.ai-insight{margin:8px 0;padding:9px 12px;border-left:3px solid var(--c3);border-radius:0 9px 9px 0;background:rgba(255,184,0,.07);color:var(--tx);font-size:12px;line-height:1.45}
+.ai-insight::before{content:"CONSEIL IA · ";font:700 9px var(--disp);letter-spacing:.1em;color:var(--c3)}
+
+/* Grand écran : plateau à gauche, salon et informations dans une colonne latérale. */
+@media(min-width:960px){
+  main{max-width:1280px}
+  #menu .menu-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  #menu .online-card{grid-column:1/-1}
+  #game:not(.board-fullscreen){
+    display:grid;grid-template-columns:minmax(0,1fr) minmax(285px,340px);
+    grid-template-areas:"scores scores" "dock dock" "board side" "controls side" "status side" "insight side" "notice side" "actions actions";
+    align-items:start;gap:8px 18px;max-width:1280px;
+  }
+  #bar{grid-area:scores;grid-template-columns:repeat(auto-fit,minmax(0,1fr))}
+  #gameDock{grid-area:dock}
+  #cvw{grid-area:board;min-width:0;align-self:start}
+  #cvw canvas{max-width:100%}
+  .view-controls{grid-area:controls;min-width:0}
+  #msg{grid-area:status;margin-top:4px}
+  #aiInsight{grid-area:insight}
+  #gnote{grid-area:notice}
+  #onlinePanel{grid-area:side;align-self:start;position:sticky;top:12px;margin:0;min-width:0}
+  #onlinePanel[hidden]{display:none!important}
+  .acts{grid-area:actions}
+  #game.board-fullscreen{max-width:none;grid-template-columns:minmax(0,1fr) minmax(280px,340px);grid-template-areas:"scores scores" "dock dock" "board side" "controls side" "status side" "insight side" "notice side" "actions actions"}
+  #game.board-fullscreen #cvw{max-height:76dvh}
+  #game.board-fullscreen #bar{position:sticky;top:0;z-index:65;padding:7px;border:1px solid rgba(5,217,232,.2);border-radius:13px;background:rgba(8,7,23,.76);backdrop-filter:blur(14px)}
+}
+@media(max-width:959px){
+  .menu-grid{grid-template-columns:1fr}
+  .ai-insight{font-size:11px}
+}
+@media(prefers-reduced-motion:reduce){.connection-pill[data-state="connecting"]::before{animation:none}}
