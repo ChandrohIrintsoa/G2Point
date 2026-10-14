@@ -131,26 +131,29 @@ const draw=()=>{raf||(raf=requestAnimationFrame(()=>{raf=0;paint()}))}; /* au pl
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{COL=null;dirty=true;draw()});
 
 /* Mémoire tactique v2 : réinitialise les motifs pollués par les anciennes simulations auto et les coups humains. */
-const AI_SCHEMA=2;
-const AIDEF=()=>({schema:AI_SCHEMA,w:E.DEFAULT_W.slice(),c:null,st:{g:0,w:0},book:{},games:0,manualLessons:0});
+const AI_SCHEMA=3;
+const AIDEF=()=>({schema:AI_SCHEMA,w:E.DEFAULT_W.slice(),c:null,st:{g:0,w:0},book:{},games:0,manualLessons:0,opponent:{samples:0,captures:0,cluster:0,edge:0}});
 function loadAI(){
   const a=jget('g2p.ai',null);
   if(!a||!Array.isArray(a.w)||a.w.length!==6||!a.book||typeof a.book!=='object'||Array.isArray(a.book))return AIDEF();
-  if(a.schema!==AI_SCHEMA)return {...AIDEF(),w:a.w.every(Number.isFinite)?a.w.slice():E.DEFAULT_W.slice()};
-  return {...AIDEF(),...a,schema:AI_SCHEMA,st:{...AIDEF().st,...(a.st||{})}};
+  /* Migration douce : conserve les leçons IA v2, ajoute simplement le profil adaptatif v3. */
+  if(a.schema!==AI_SCHEMA)return {...AIDEF(),...a,schema:AI_SCHEMA,w:a.w.every(Number.isFinite)?a.w.slice():E.DEFAULT_W.slice(),book:a.book,st:{...AIDEF().st,...(a.st||{})},opponent:{...AIDEF().opponent,...(a.opponent||{})}};
+  return {...AIDEF(),...a,schema:AI_SCHEMA,st:{...AIDEF().st,...(a.st||{})},opponent:{...AIDEF().opponent,...(a.opponent||{})}};
 }
 function saveAI(a){
   a.schema=AI_SCHEMA;
+  a.opponent={...AIDEF().opponent,...(a.opponent||{})};
   const ks=Object.keys(a.book);
   if(ks.length>1500){ks.sort((p,q)=>a.book[q][0]-a.book[p][0]);const nb={};ks.slice(0,1200).forEach(k=>nb[k]=a.book[k]);a.book=nb}
   jset('g2p.ai',a);cloudPersistAI(a);
 }
-function aiPick(){aiP=daily?null:(()=>{const a=loadAI();return{w:a.w,book:a.book,lvl}})()}
-/* Apprentissage contrôlé : l'IA n'apprend que des coups qu'elle a réellement joués en mode Solo. */
+function aiPick(){aiP=daily?null:(()=>{const a=loadAI();return{w:a.w,book:a.book,opponent:a.opponent,lvl}})()}
+/* Apprentissage asymétrique : l'IA apprend ses propres coups et observe séparément les habitudes humaines. */
 function learnFromGame(win,r){
   if(!ai||daily||mode!=='local'||!aiP||lvl<=0)return;
   const a=loadAI();a.st=a.st||{g:0,w:0};
   E.learn(a.book,moves,W,H,N,TM,win,1);
+  a.opponent=E.observeOpponent(a.opponent,moves,W,H,N,TM,0);
   a.st.g++;if(win.includes(1))a.st.w++;
   a.games=(a.games||0)+1;saveAI(a);aiPick();
 }
