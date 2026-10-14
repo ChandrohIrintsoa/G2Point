@@ -3,15 +3,47 @@
 const N4=[[1,0],[-1,0],[0,1],[0,-1]],N8=[...N4,[1,1],[1,-1],[-1,1],[-1,-1]];
 const grid=(W,H,v)=>Array.from({length:H},()=>Array(W).fill(v));
 const tmOf=(tm,p)=>tm?p%2:p;
+/* Zobrist déterministe : une mutation de case met à jour le hash en O(1). */
+function zkey(kind,index,value){
+  let z=(Math.imul((kind+1)^(Math.imul(index+1,0x9e3779b1)),0x85ebca6b)^Math.imul(value+1,0xc2b2ae35))>>>0;
+  z^=z>>>16;z=Math.imul(z,0x7feb352d);z^=z>>>15;z=Math.imul(z,0x846ca68b);z^=z>>>16;
+  return z>>>0;
+}
+function scalarHash(s){
+  let h=zkey(10,s.w,s.h)^zkey(11,0,s.cur)^zkey(12,0,s.bonus?1:0)^zkey(13,0,s.combo||0);
+  for(let i=0;i<s.sc.length;i++)h^=zkey(14,i,s.sc[i])^zkey(15,i,(s.terr||[])[i]||0);
+  return h>>>0;
+}
+function cellHashValue(idx,o,d,blk){return zkey(0,idx,o)^zkey(1,idx,d?1:0)^zkey(2,idx,blk?1:0)}
+function computeHash(s){
+  let h=scalarHash(s);
+  for(let y=0;y<s.h;y++)for(let x=0;x<s.w;x++)h^=cellHashValue(y*s.w+x,s.o[y][x],s.d[y][x],s.blk[y][x]);
+  return h>>>0;
+}
+function ensureHash(s){if(!Number.isInteger(s._hash))s._hash=computeHash(s);return s._hash>>>0}
+function updateCellHash(s,x,y,oldO,oldD,oldBlk){
+  const idx=y*s.w+x;
+  s._hash=(ensureHash(s)^cellHashValue(idx,oldO,oldD,oldBlk)^cellHashValue(idx,s.o[y][x],s.d[y][x],s.blk[y][x]))>>>0;
+}
+function updateScalarHash(s,before){
+  let h=ensureHash(s);
+  h^=zkey(11,0,before.cur)^zkey(11,0,s.cur);
+  h^=zkey(12,0,before.bonus?1:0)^zkey(12,0,s.bonus?1:0);
+  h^=zkey(13,0,before.combo||0)^zkey(13,0,s.combo||0);
+  for(let i=0;i<s.sc.length;i++){
+    h^=zkey(14,i,before.sc[i])^zkey(14,i,s.sc[i]);
+    h^=zkey(15,i,(before.terr||[])[i]||0)^zkey(15,i,(s.terr||[])[i]||0);
+  }
+  s._hash=h>>>0;
+}
 const CAND_RADIUS=4;      /* scan tactique à rayon 4 autour de chaque point existant */
-const MIN_LINK=2;         /* un point ne peut fermer une boucle que s'il touche ≥2 de mes points vivants */
 const HARD_TOP=5,HARD_REPLY=.8,SEARCH_BEAM=6,SEARCH_DEPTH=4,TRANSPOSE_MAX=10000; /* recherche bornée, cache de transpositions */
 const LEVELS=[{name:'Facile',noise:4,block:.3,book:false,deep:false},{name:'Normal',noise:.3,block:1,book:true,deep:false},{name:'Difficile',noise:.05,block:1,book:true,deep:true},{name:'Champion',noise:0,block:1.35,book:true,deep:true,champion:true}];
-function create(w,h,n,tm){const K=tm?2:n;return{n:0,w,h,N:n,tm:!!tm,o:grid(w,h,0),d:grid(w,h,false),sc:Array(K).fill(0),big:Array(K).fill(0),combo:0,loops:[],cur:0,bonus:false,cap:[],capT:0,blk:grid(w,h,false),terr:Array(K).fill(0),free:w*h}}
+function create(w,h,n,tm){const K=tm?2:n,s={n:0,w,h,N:n,tm:!!tm,o:grid(w,h,0),d:grid(w,h,false),sc:Array(K).fill(0),big:Array(K).fill(0),combo:0,loops:[],cur:0,bonus:false,cap:[],capT:0,blk:grid(w,h,false),terr:Array(K).fill(0),free:w*h};s._hash=computeHash(s);return s}
 /* Case jouable : dans le terrain, vide, et hors territoire confiné (zone fermée où une capture a eu lieu) */
 const legal=(s,x,y)=>x>=0&&y>=0&&x<s.w&&y<s.h&&!s.o[y][x]&&!s.blk[y][x];
 /* Territoire : une zone fermée qui a capturé devient inaccessible pour tous. */
-function mark(s,c,owner=null){for(const [a,b] of c.cells)if(!s.blk[b][a]){s.blk[b][a]=true;if(!s.o[b][a])s.free--;if(owner!=null&&s.terr)s.terr[owner]++}}
+function mark(s,c,owner=null){for(const [a,b] of c.cells)if(!s.blk[b][a]){const oo=s.o[b][a],od=s.d[b][a],ob=s.blk[b][a];s.blk[b][a]=true;if(!s.o[b][a])s.free--;if(owner!=null&&s.terr)s.terr[owner]++;updateCellHash(s,a,b,oo,od,ob)}}
 /* Zones fermées par l'équipe t : composantes de cases non atteignables depuis le bord.
    Si `at` est fourni, on s'arrête dès que la composante contenant `at` est trouvée (early-exit).
    Version tableaux typés + tampons réutilisés : aucune allocation par case (c'était le point chaud de l'IA). */
@@ -81,11 +113,14 @@ function canClose(s,x,y,t){
 /* Joue un coup. Retourne false (sans rien modifier) si le coup est illégal, y compris dans un territoire confiné. */
 function apply(s,[x,y]){
   if(!legal(s,x,y))return false;
-  const K=s.tm?2:s.N,t=tmOf(s.tm,s.cur);s.o[y][x]=t+1;s.free--;let g=0;s.cap=[];s.capT=t;
+  ensureHash(s);
+  const before={cur:s.cur,bonus:s.bonus,combo:s.combo,sc:s.sc.slice(),terr:(s.terr||[]).slice()};
+  const K=s.tm?2:s.N,t=tmOf(s.tm,s.cur),oldO=s.o[y][x],oldD=s.d[y][x],oldBlk=s.blk[y][x];
+  s.o[y][x]=t+1;updateCellHash(s,x,y,oldO,oldD,oldBlk);s.free--;let g=0;s.cap=[];s.capT=t;
   /* Un point relié à moins de 2 de mes points ne peut pas fermer de boucle : on évite le scan complet */
   if(canClose(s,x,y,t))for(const c of scan(s,t)){
     const vic=c.cells.filter(([a,b])=>s.o[b][a]&&s.o[b][a]!=t+1&&!s.d[b][a]);
-    if(vic.length){vic.forEach(([a,b])=>s.d[b][a]=true);s.sc[t]+=vic.length;g+=vic.length;s.loops.push({t,c});mark(s,c,t);s.cap.push(...vic)}
+    if(vic.length){vic.forEach(([a,b])=>{const oo=s.o[b][a],od=s.d[b][a],ob=s.blk[b][a];s.d[b][a]=true;updateCellHash(s,a,b,oo,od,ob)});s.sc[t]+=vic.length;g+=vic.length;s.loops.push({t,c});mark(s,c,t);s.cap.push(...vic)}
   }
   if(g&&g>s.big[t])s.big[t]=g;
   if(!g)for(let u=0;u<K;u++){ /* piège : point posé dans une zone déjà fermée par un adversaire */
@@ -94,6 +129,7 @@ function apply(s,[x,y]){
     if(c){s.d[y][x]=true;s.sc[u]++;if(!s.big[u])s.big[u]=1;s.loops.push({t:u,c});mark(s,c,u);s.cap=[[x,y]];s.capT=u;break}
   }
   s.bonus=g>0;s.combo=s.bonus?s.combo+1:0;if(!s.bonus)s.cur=(s.cur+1)%s.N; /* capture = le même joueur rejoue */
+  updateScalarHash(s,before);
   return true;
 }
 const clone=s=>({...s,o:s.o.map(r=>r.slice()),d:s.d.map(r=>r.slice()),blk:s.blk.map(r=>r.slice()),sc:s.sc.slice(),big:s.big.slice(),terr:(s.terr||[]).slice(),loops:[],cap:[]});
@@ -189,14 +225,7 @@ function positionValue(s,root,weights,profile){
 }
 /* Recherche minimax à profondeur limitée. Chaque nœud ne conserve que les meilleurs candidats
    selon une évaluation tactique rapide ; les captures donnent un tour supplémentaire au même joueur. */
-function stateHash(s){
-  let h=2166136261;
-  const put=v=>{h^=v;h=Math.imul(h,16777619)};
-  put(s.cur);put(s.bonus?1:0);
-  for(let y=0;y<s.h;y++)for(let x=0;x<s.w;x++){put(s.o[y][x]);put(s.d[y][x]?1:0);put(s.blk[y][x]?1:0)}
-  for(const v of s.sc)put(v);for(const v of s.terr||[])put(v);
-  return (h>>>0).toString(36);
-}
+function stateHash(s){return ensureHash(s).toString(36)}
 function searchBeam(s,root,depth,beam,weights,book,level,profile,ctx){
   const evaluate=()=>positionValue(s,root,weights,profile);
   if(depth<=0||s.free<=0||ctx.aborted)return evaluate();
@@ -259,11 +288,11 @@ function imaginaryTargets(s,player){
   for(let dy=-4;dy<=4;dy++)for(let dx=-4;dx<=4;dx++){const a=x+dx,b=y+dy,k=b*s.w+a;if(a>=0&&b>=0&&a<s.w&&b<s.h&&legal(s,a,b)&&!seen.has(k)){seen.add(k);out.push([a,b])}}
  return out;
 }
-function dijkstraTargets(s,player){
+function dijkstraTargets(s,player,deadline=Infinity){
  const n=s.w*s.h,dist=new Float64Array(n);dist.fill(Infinity);const targets=imaginaryTargets(s,player),open=[];
  for(const [x,y] of targets){const k=y*s.w+x;dist[k]=0;open.push(k)}
  const done=new Uint8Array(n);
- while(open.length){let bi=0;for(let i=1;i<open.length;i++)if(dist[open[i]]<dist[open[bi]])bi=i;
+ while(open.length&&nowMs()<deadline){let bi=0;for(let i=1;i<open.length;i++)if(dist[open[i]]<dist[open[bi]])bi=i;
   const k=open.splice(bi,1)[0];if(done[k])continue;done[k]=1;const x=k%s.w,y=(k-x)/s.w;
   for(const [dx,dy] of N8){const a=x+dx,b=y+dy;if(a<0||b<0||a>=s.w||b>=s.h||s.o[b][a]||s.blk[b][a])continue;
    const j=b*s.w+a,nd=dist[k]+(dx&&dy?1.414:1);if(!done[j]&&nd<dist[j]){dist[j]=nd;open.push(j)}}
@@ -282,9 +311,9 @@ function aStarRoute(s,start,goal){
  }
  return[];
 }
-function forecastOpponent(s,opponent,horizon=FUTURE_HORIZON){
+function forecastOpponent(s,opponent,horizon=FUTURE_HORIZON,deadline=Infinity){
  let beam=[{state:clone(s),moves:[],score:0}],projected=new Map();
- for(let turn=0;turn<horizon;turn++){const next=[];
+ for(let turn=0;turn<horizon&&nowMs()<deadline;turn++){const next=[];
   for(const node of beam){const state=node.state;state.cur=opponent;const ranked=[];
    for(const move of cands(state).list){const child=clone(state),before=child.sc[opponent];if(!apply(child,move))continue;
     const gain=child.sc[opponent]-before,adj=links(state,move[0],move[1],opponent),score=node.score+gain*8+adj*.25;
@@ -296,8 +325,8 @@ function forecastOpponent(s,opponent,horizon=FUTURE_HORIZON){
  }
  return{projected,lines:beam.map(x=>x.moves),horizon};
 }
-function predictiveMap(s,opponent,horizon=FUTURE_HORIZON){
- const paths=dijkstraTargets(s,opponent),future=forecastOpponent(s,opponent,horizon),risk=new Float64Array(s.w*s.h);
+function predictiveMap(s,opponent,horizon=FUTURE_HORIZON,budgetMs=140){
+ const deadline=nowMs()+Math.max(1,budgetMs),paths=dijkstraTargets(s,opponent,deadline),future=forecastOpponent(s,opponent,horizon,deadline),risk=new Float64Array(s.w*s.h);
  for(let i=0;i<risk.length;i++)risk[i]=(Number.isFinite(paths.dist[i])?1/(1+paths.dist[i]):0)+(future.projected.get(i)||0)*2;
  return{...paths,forecast:future,risk};
 }
@@ -321,7 +350,7 @@ function aiMove(s,rnd=Math.random,P){
   }
   scored.sort((p,q)=>q.v-p.v);
   if(L.deep&&(!P||P.predictive!==false)){
-    const map=predictiveMap(s,opp,FUTURE_HORIZON);
+    const map=predictiveMap(s,opp,FUTURE_HORIZON,L.champion?200:130);
     for(const c of scored){const k=c.m[1]*W+c.m[0],risk=map.risk[k]||0;c.v+=risk*w[2]*.22;if(map.forecast.projected.has(k))c.v+=w[2]*.45}
   }
   if(L.deep){
@@ -373,6 +402,6 @@ function genPuzzle(rnd=Math.random,intel=0,P,maxMs=1500){
   }
   return null;
 }
-const api={genPuzzle,puzzleSpec,create,scan,apply,legal,links,tmOf,grid,clone,rng,aiMove,learn,teach,observeOpponent,opponentStyle,positionValue,bookValue,patKey,strategyKey,mutate,imaginaryTargets,dijkstraTargets,aStarRoute,forecastOpponent,predictiveMap,DEFAULT_W,LEVELS};
+const api={genPuzzle,puzzleSpec,create,scan,apply,legal,links,tmOf,grid,clone,rng,aiMove,learn,teach,observeOpponent,opponentStyle,positionValue,bookValue,patKey,strategyKey,mutate,imaginaryTargets,dijkstraTargets,aStarRoute,forecastOpponent,predictiveMap,stateHash,rebuildHash:s=>{s._hash=computeHash(s);return s._hash.toString(36)},DEFAULT_W,LEVELS};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.G2Engine=api;
 })(typeof window!=='undefined'?window:globalThis);
