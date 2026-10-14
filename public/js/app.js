@@ -624,6 +624,8 @@ const validConfig=!!(FIREBASE_CONFIG.apiKey&&FIREBASE_CONFIG.authDomain&&FIREBAS
 function setOnlineState(message,state='connecting'){
   const pill=$('onlineState');pill.textContent=message;pill.dataset.state=state;
 }
+window.addEventListener('offline',()=>setOnlineState('Connexion réseau interrompue · parties locales toujours disponibles.','offline'));
+window.addEventListener('online',()=>setOnlineState(authReady?'Connecté · le multijoueur est disponible.':'Reconnexion au service…',authReady?'ready':'connecting'));
 function openChatPopup(){if(mode!=='online'||!ready)return;chatUnread=0;$('chatBadge').hidden=true;$('chatDialog').hidden=false;renderChatMessages(chatRows);renderOnlinePanel(gameData||{n:N});$('chatInput').focus({preventScroll:true})}
 function closeChatPopup(){$('chatDialog').hidden=true;$('chatInput').blur()}
 $('chatOpen').onclick=openChatPopup;
