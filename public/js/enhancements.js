@@ -51,72 +51,18 @@ function renderObserver(){
 }
 function logTrajectory(text){trajectory.push(new Date().toLocaleTimeString('fr-FR')+' — '+text);if(trajectory.length>120)trajectory.shift();if(!monitor.hidden)renderObserver()}
 
-/* Analyse multi-directionnelle et anticipation de combinaisons.
-   Pour chaque candidat, l'IA évalue les 8 directions (orthogonales + diagonales),
-   puis simule ses suites légales pour estimer les menaces de capture/défense. */
+/* Observation passive : journalise le choix moteur sans modifier sa décision tactique. */
 const E=window.G2Engine;
 if(E&&typeof E.aiMove==='function'&&!E.__observing){
   const base=E.aiMove;
-  const DIRS=[[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
-  const scanRadius=4,MAX_CANDIDATES=120,REPLY_TOP=16;
-  const collect=(s)=>{
-    const found=new Map();
-    for(let y=0;y<s.h;y++)for(let x=0;x<s.w;x++)if(s.o[y][x]){
-      for(const [dx,dy] of DIRS)for(let k=1;k<=scanRadius;k++){
-        const a=x+dx*k,b=y+dy*k;
-        if(E.legal(s,a,b))found.set(b*s.w+a,[a,b]);
-      }
-    }
-    return [...found.values()];
-  };
-  const scorePosition=(before,after,me,opp,move)=>{
-    const own=after.sc[me]-before.sc[me],lost=after.sc[opp]-before.sc[opp];
-    let friendly=0,enemy=0,open=0;
-    for(const [dx,dy] of DIRS){
-      const x=move[0]+dx,y=move[1]+dy;
-      if(x<0||y<0||x>=before.w||y>=before.h)continue;
-      const p=before.o[y][x];
-      if(p===me+1)friendly++;else if(p===opp+1)enemy++;else if(!p&&!before.blk[y][x])open++;
-    }
-    return own*30-lost*34+friendly*1.15+enemy*.9+open*.12;
-  };
   E.aiMove=function(state,rng,params){
-    const chosen=base(state,rng,params);if(!chosen)return chosen;
-    if(!state.o.some(row=>row.some(Boolean)))return chosen;
-    const me=E.tmOf(state.tm,state.cur),opp=1-me;
-    const pool=collect(state);
-    if(!pool.length)return chosen;
-    /* Scanner tous les points adverses et alliés dans un rayon de quatre intersections. */
-    const ranked=[];
-    for(const move of pool){
-      const next=E.clone(state);if(!E.apply(next,move))continue;
-      let value=scorePosition(state,next,me,opp,move);
-      ranked.push({move,next,value});
-    }
-    ranked.sort((a,b)=>b.value-a.value);
-    /* Examiner les suites offensives et défensives, puis anticiper la meilleure riposte adverse. */
-    const shortlist=ranked.slice(0,MAX_CANDIDATES);
-    for(const item of shortlist.slice(0,REPLY_TOP)){
-      const s=item.next;
-      let follow=0,threat=0;
-      if(!s.bonus){
-        const continuation=base(s,()=>0.23,{...(params||{}),lvl:1});
-        if(continuation){const c=E.clone(s);if(E.apply(c,continuation))follow=Math.max(0,c.sc[me]-s.sc[me]);}
-        const reply=base(s,()=>0.37,{...(params||{}),lvl:2});
-        if(reply){const c=E.clone(s);if(E.apply(c,reply))threat=Math.max(0,c.sc[opp]-s.sc[opp]);}
-      }
-      item.value+=follow*5.5-threat*7.5;
-      if(item.move[0]===chosen[0]&&item.move[1]===chosen[1])item.value+=.2;
-    }
-    shortlist.sort((a,b)=>b.value-a.value);
-    const best=shortlist[0]||{move:chosen,value:0};
-    logTrajectory('Scan rayon 4 : '+pool.length+' cases · '+shortlist.length+' suites étudiées · attaque '+(best.next.sc[me]-state.sc[me])+' · menace adverse anticipée');
-    return best.move;
+    const move=base(state,rng,params);
+    if(move)logTrajectory('Coup retenu : '+String.fromCharCode(65+move[0])+(move[1]+1)+' · niveau '+((params&&params.lvl!=null)?params.lvl:1));
+    return move;
   };
   E.__observing=true;
 }
-/* Simulation IA en direct, sur demande : IA contre IA sur un vrai terrain (mêmes couleurs, territoires et points capturés
-   que dans une partie). Accessible depuis le menu caché (☰ Menu) et depuis l'observatoire. Lecture seule : ne modifie pas la mémoire de l'IA. */
+/* Simulation IA contre IA conservée uniquement dans l'observatoire caché, jamais dans le menu ☰. */
 const SIZES={'11x15':[11,15],'17x23':[17,23],'23x31':[23,31]},SPEEDS={slow:900,normal:420,fast:120},TAU=Math.PI*2,LIVE_NAMES=['Rouge','Cyan'];
 const demo=document.createElement('section');demo.id='aiLiveDemo';demo.className='ai-observer ai-live-demo';demo.hidden=true;
 demo.setAttribute('role','dialog');demo.setAttribute('aria-label','Simulation IA en direct');
@@ -233,7 +179,6 @@ $('demoRun').onclick=()=>{
 $('demoReset').onclick=()=>{liveStop();liveReset();$('demoRun').textContent='Lancer la simulation'};
 $('demoSize').onchange=()=>{liveStop();liveReset()};
 $('observerLive').onclick=openLive;
-const dockDemo=document.createElement('button');dockDemo.type='button';dockDemo.id='dockLive';dockDemo.textContent='Simulation IA en direct';dockDemo.onclick=openLive;panel?.append(dockDemo);
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!demo.hidden)closeLive()});
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&live.running)liveStop()}); /* pas de calcul en arrière-plan */
 addEventListener('resize',()=>{if(!demo.hidden)liveDraw()});
