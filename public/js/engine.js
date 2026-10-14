@@ -188,10 +188,10 @@ function searchBeam(s,root,depth,beam,weights,book,level,profile,noise){
   for(const [x,y] of list){
     const next=clone(s);if(!apply(next,[x,y]))continue;
     const own=next.sc[actor]-s.sc[actor],against=next.sc[1-actor]-s.sc[1-actor];
-    let h=(own-against)*(weights[0]+weights[1])*.5;
-    const same=links(s,x,y,actor),enemy=links(s,x,y,1-actor);
-    h+=same*weights[3]+enemy*weights[4];
-    if(actor!==root)h+=enemy*style.capture*weights[2]*.3;
+    let h=(actor===root?own-against:against-own)*(weights[0]+weights[1])*.5;
+    const same=links(s,x,y,actor),enemy=links(s,x,y,1-actor),sign=actor===root?1:-1;
+    h+=sign*(same*weights[3]+enemy*weights[4]);
+    if(actor!==root)h-=enemy*style.capture*weights[2]*.3;
     const key=book&&book[strategyKey(s,x,y,actor)];
     if(level.book&&key)h+=weights[5]*Math.max(-1,Math.min(2,(key[1]+key[2])/(key[0]+2)));
     ranked.push({next,h,actor:tmOf(next.tm,next.cur),bonus:next.bonus});
