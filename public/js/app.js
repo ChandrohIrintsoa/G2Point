@@ -195,9 +195,10 @@ function teachWorstAIMistake(a){
   }
   if(worst)E.teach(a.book,worst.state,worst.move[0],worst.move[1],1,-2,a.sbook);
 }
-function evolveAI(a,won,playerElo=1200){
+function evolveAI(a,score,playerElo=1200){
   a.pop=a.pop.length===8?a.pop:freshPopulation(a.w);
-  const p=a.pop[a.active]||a.pop[0],score=won?1:0,elo=p.elo||1200,expected=1/(1+Math.pow(10,(playerElo-elo)/400));
+  score=Math.max(0,Math.min(1,Number(score)||0));
+  const p=a.pop[a.active]||a.pop[0],elo=p.elo||1200,expected=1/(1+Math.pow(10,(playerElo-elo)/400));
   p.played=(p.played||0)+1;p.score=(p.score||0)+score;p.elo=Math.round(elo+24*(score-expected));
   a.games=(a.games||0)+1;a.active=(a.active+1)%a.pop.length;a.c=a.pop[a.active].w.slice();
   if(a.games>0&&a.games%10===0){
@@ -214,8 +215,8 @@ function learnFromGame(win,r){
   if(!win.includes(1))teachWorstAIMistake(a);
   if(win.includes(0))E.learn(a.antiBook,moves,W,H,N,TM,win,0,a.antiSBook);
   a.opponent=E.observeOpponent(a.opponent,moves,W,H,N,TM,0);for(const entry of a.log)if(entry.game===aiLogGame&&entry.won==null)entry.won=win.includes(entry.player);aiLogGame='';
-  a.st.g++;if(win.includes(1))a.st.w++;
-  const playerRating=(loadProg().elo[eloKey()]||1200);evolveAI(a,win.includes(1),playerRating);saveAI(a);aiPick();
+  a.st.g++;if(win.includes(1)&&!win.includes(0))a.st.w++;
+  const playerRating=(loadProg().elo[eloKey()]||1200),score=win.includes(1)?(win.includes(0)?.5:1):0;evolveAI(a,score,playerRating);saveAI(a);aiPick();
 }
 
 /* Libellés, résultat, historique, partage */
