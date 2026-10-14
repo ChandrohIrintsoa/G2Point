@@ -112,7 +112,7 @@ body.board-fs #chatToasts{position:fixed;z-index:10030;top:calc(12px + env(safe-
   #onlinePanel{grid-area:side;align-self:start;position:sticky;top:12px;margin:0;min-width:0}
   #onlinePanel[hidden]{display:none!important}
   .acts{grid-area:actions}
-  #game.board-fullscreen{max-width:none;grid-template-columns:minmax(0,1fr) minmax(280px,340px);grid-template-areas:"scores scores" "dock dock" "board side" "controls side" "status side" "insight side" "notice side" "actions actions"}
+  #game.board-fullscreen{display:grid;max-width:none;grid-template-columns:minmax(0,1fr) minmax(280px,340px);grid-template-areas:"scores scores" "dock dock" "board side" "controls side" "status side" "insight side" "notice side" "actions actions"}
   #game.board-fullscreen #cvw{max-height:76dvh}
   #game.board-fullscreen #bar{position:sticky;top:0;z-index:65;padding:7px;border:1px solid rgba(5,217,232,.2);border-radius:13px;background:rgba(8,7,23,.76);backdrop-filter:blur(14px)}
 }
@@ -121,3 +121,9 @@ body.board-fs #chatToasts{position:fixed;z-index:10030;top:calc(12px + env(safe-
   .ai-insight{font-size:11px}
 }
 @media(prefers-reduced-motion:reduce){.connection-pill[data-state="connecting"]::before{animation:none}}
+
+/* Petites touches de finition et aperçu immédiat de palette. */
+.theme-swatches{display:flex;align-items:center;gap:7px;min-height:25px;padding-left:2px}
+.theme-swatches span{display:block;width:13px;height:13px;border:1px solid rgba(255,255,255,.42);border-radius:50%;box-shadow:0 0 9px currentColor}
+.acts button{text-transform:none;letter-spacing:.015em}
+@media(min-width:960px){#menu .menu-card{padding:18px}#menu .online-card .stack{grid-template-columns:repeat(2,minmax(0,1fr))}#menu .online-card .row,#menu .online-card .connection-pill,#menu .online-card .setup-note,#menu .online-card #hint{grid-column:1/-1}}
