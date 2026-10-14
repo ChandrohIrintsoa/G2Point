@@ -43,3 +43,18 @@ test('les livres tactique et stratégique restent indépendants',()=>{
   assert.equal(Object.keys(strategic).every(k=>k.startsWith('S|')),true);
   assert.ok(Object.keys(tactical).length>0&&Object.keys(strategic).length>0);
 });
+
+test('le territoire capturé est attribué et conservé dans les clones',()=>{
+  const s=E.create(11,15,2,false);
+  for(const p of [[5,4],[5,5],[4,5],[0,0],[6,5],[0,2],[5,6]])E.apply(s,p);
+  assert.ok(s.terr[0]>0);
+  assert.deepEqual(E.clone(s).terr,s.terr);
+});
+
+test('le livre stratégique séparé est accepté par la recherche profonde',()=>{
+  const s=E.create(11,15,2,false);
+  for(const p of [[5,5],[5,4],[1,1],[4,5],[2,2],[6,5],[3,3]])E.apply(s,p);
+  const key=E.strategyKey(s,5,6,0),sbook={[key]:[20,40,15,Date.now()]};
+  const move=E.aiMove(E.clone(s),E.rng(20261015),{lvl:2,sbook});
+  assert.ok(move&&E.legal(s,move[0],move[1]));
+});
