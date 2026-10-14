@@ -107,3 +107,17 @@ test('le niveau Champion est disponible avec recherche renforcée',()=>{
   const move=E.aiMove(s,E.rng(20261016),{lvl:3,predictive:false});
   assert.ok(move&&E.legal(s,move[0],move[1]));
 });
+
+test('le hash Zobrist incrémental correspond toujours au hash reconstruit',()=>{
+  const s=E.create(11,15,2,false),moves=[[5,4],[5,5],[4,5],[0,0],[6,5],[0,2],[5,6]];
+  for(const move of moves){
+    assert.equal(E.apply(s,move),true);
+    const rebuilt=E.clone(s);
+    assert.equal(E.stateHash(s),E.rebuildHash(rebuilt));
+  }
+  assert.ok(s.terr.some(v=>v>0));
+});
+test('le hash distingue les règles de jeu de même plateau',()=>{
+  const a=E.create(11,15,2,false),b=E.create(11,15,4,true);
+  assert.notEqual(E.stateHash(a),E.stateHash(b));
+});
