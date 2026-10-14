@@ -35,3 +35,11 @@ test('les poids évolués restent finis et positifs',()=>{
   assert.equal(a.length,6);
   assert.ok(a.every(v=>Number.isFinite(v)&&v>=0));
 });
+
+test('les livres tactique et stratégique restent indépendants',()=>{
+  const tactical={},strategic={},moves=[[5,5],[0,0]];
+  E.learn(tactical,moves,11,15,2,false,[0],0,strategic);
+  assert.equal(Object.keys(tactical).some(k=>k.startsWith('S|')),false);
+  assert.equal(Object.keys(strategic).every(k=>k.startsWith('S|')),true);
+  assert.ok(Object.keys(tactical).length>0&&Object.keys(strategic).length>0);
+});
