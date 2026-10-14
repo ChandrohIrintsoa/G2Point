@@ -204,36 +204,57 @@ function evolveAI(a,score,playerElo=1200){
   if(a.games>0&&a.games%10===0){
     const ranked=a.pop.slice().sort((x,y)=>(y.score/(y.played||1))-(x.score/(x.played||1))||y.elo-x.elo);
     const next=ranked.slice(0,2).map(x=>({...x,w:x.w.slice()}));
-    for(let i=0;i<6;i++){const parent=ranked[i%4];next.push({w:E.mutate(parent.w,E.rng(Date.now()+i*3571+a.games)),score:0,played:0,elo:parent.elo||1200})}
+    for(let i=0;i<6;i++){const parent=ranked[i%4];next.push({w:E.mutate(parent.w,E.rng(Date.now()+i*3571+a.games)),score:0,played:0,elo:1200})}
     a.pop=next;a.active=0;a.w=a.pop[0].w.slice();a.c=a.w.slice();
   }
 }
 /* Auto-entraînement discret : uniquement onglet caché + réseau, 1 coup/3 s, 40 coups puis pause 10 min.
    La simulation est isolée de la partie visible et s'arrête dès le retour de l'utilisateur. */
-let idleTrainTimer=0,idleTrainMoves=0,idleTrainPause=0,idleTrainState=null;
-function stopIdleTraining(){clearTimeout(idleTrainTimer);idleTrainTimer=0;idleTrainState=null}
+let idleTrainTimer=0,idleTrainMoves=0,idleTrainPause=0,idleTrainState=null,idleBatterySafe=true;
+const IDLE_SESSION_MOVES=20,IDLE_DAILY_MOVES=120,IDLE_STEP_MS=6000;
+if(navigator.getBattery)navigator.getBattery().then(b=>{
+  const refresh=()=>{idleBatterySafe=!!b.charging||b.level>=.25};
+  refresh();b.addEventListener('chargingchange',refresh);b.addEventListener('levelchange',refresh);
+}).catch(()=>{});
+function cancelIdleTimer(){clearTimeout(idleTrainTimer);if(typeof cancelIdleCallback==='function')cancelIdleCallback(idleTrainTimer);idleTrainTimer=0}
+function scheduleIdleStep(fn,delay){
+  cancelIdleTimer();
+  idleTrainTimer=setTimeout(()=>{
+    if(typeof requestIdleCallback==='function')idleTrainTimer=requestIdleCallback(()=>{idleTrainTimer=0;fn()},{timeout:Math.max(1000,delay)});
+    else{idleTrainTimer=0;fn()}
+  },delay);
+}
+function stopIdleTraining(){cancelIdleTimer();idleTrainState=null}
+function idleDailyBudget(){
+  const day=new Date().toISOString().slice(0,10),saved=jget('g2p.ai.idleBudget',{day,moves:0});
+  const budget=saved.day===day?saved:{day,moves:0};
+  return budget;
+}
 function startIdleTraining(){
-  if(!document.hidden||!navigator.onLine||daily)return;
-  if(Date.now()<idleTrainPause){idleTrainTimer=setTimeout(startIdleTraining,idleTrainPause-Date.now());return}
-  idleTrainMoves=0;idleTrainState=null;clearTimeout(idleTrainTimer);idleTrainTimer=setTimeout(idleTrainingStep,3000);
+  if(!document.hidden||!navigator.onLine||daily||!idleBatterySafe)return;
+  if(Date.now()<idleTrainPause){scheduleIdleStep(startIdleTraining,idleTrainPause-Date.now());return}
+  if(idleDailyBudget().moves>=IDLE_DAILY_MOVES)return;
+  idleTrainMoves=0;idleTrainState=null;scheduleIdleStep(idleTrainingStep,IDLE_STEP_MS);
 }
 function idleTrainingStep(){
-  if(!document.hidden||!navigator.onLine||daily){stopIdleTraining();return}
-  if(idleTrainMoves>=40){idleTrainPause=Date.now()+10*60*1000;stopIdleTraining();if(document.hidden)idleTrainTimer=setTimeout(startIdleTraining,10*60*1000);return}
+  if(!document.hidden||!navigator.onLine||daily||!idleBatterySafe){stopIdleTraining();return}
+  const dailyBudget=idleDailyBudget();
+  if(dailyBudget.moves>=IDLE_DAILY_MOVES)return;
+  if(idleTrainMoves>=IDLE_SESSION_MOVES){idleTrainPause=Date.now()+30*60*1000;stopIdleTraining();if(document.hidden)scheduleIdleStep(startIdleTraining,30*60*1000);return}
   if(!idleTrainState)idleTrainState={s:E.create(11,15,2,false),moves:[]};
   const a=loadAI(),state=idleTrainState.s,player=state.cur,candidate=a.pop[a.active]?.w||a.w;
   const options=player===0?{w:candidate,book:a.book,sbook:a.sbook,antiBook:a.antiBook,antiSBook:a.antiSBook,opponent:a.opponent,lvl:2}:{w:E.DEFAULT_W,lvl:0};
   const move=E.aiMove(state,E.rng(Date.now()+idleTrainMoves),options);
   if(move&&E.apply(state,move))idleTrainState.moves.push(move);
-  idleTrainMoves++;
+  idleTrainMoves++;dailyBudget.moves++;jset('g2p.ai.idleBudget',dailyBudget);
   if(!move||state.free<=0){
     a.simulations=(a.simulations||0)+1;
     const score=state.sc[0]>state.sc[1]?1:state.sc[0]===state.sc[1]?.5:0;
     if(score===1)E.learn(a.book,idleTrainState.moves,11,15,2,false,[0],0,a.sbook);
     evolveAI(a,score,1000);saveAI(a);idleTrainState=null;
   }
-  if(idleTrainMoves>=40){idleTrainPause=Date.now()+10*60*1000;stopIdleTraining();if(document.hidden)idleTrainTimer=setTimeout(startIdleTraining,10*60*1000);return}
-  idleTrainTimer=setTimeout(idleTrainingStep,3000);
+  if(idleTrainMoves>=IDLE_SESSION_MOVES){idleTrainPause=Date.now()+30*60*1000;stopIdleTraining();if(document.hidden)scheduleIdleStep(startIdleTraining,30*60*1000);return}
+  scheduleIdleStep(idleTrainingStep,IDLE_STEP_MS);
 }
 function learnFromGame(win,r){
   if(!ai||daily||mode!=='local'||!aiP)return;
@@ -1032,7 +1053,7 @@ $('zoomReset').onclick=()=>{setZoom(1);requestAnimationFrame(()=>{$('cvw').scrol
 $('cvw').addEventListener('wheel',e=>{if(e.ctrlKey||e.metaKey){e.preventDefault();setZoom(zoom*(e.deltaY<0?ZOOM_STEP:1/ZOOM_STEP))}},{passive:false});
 
 /* ===== Puzzles « capture en 1 coup » ===== */
-const aiIntel=()=>{const a=loadAI();return Math.min(10,Math.floor(Math.sqrt(a.games))+Math.floor(Object.keys(a.book).length/300)+Math.min(3,a.st.w))}; /* « intelligence » = expérience de l'IA */
+const aiIntel=()=>{const a=loadAI(),best=Math.max(1000,...(a.pop||[]).map(p=>Number(p.elo)||1200));return Math.max(0,Math.min(10,Math.round((best-1000)/100)))}; /* QI des puzzles aligné sur l'ELO réel de la population */
 let puzs=[],puzBusy=false;
 function renderPuz(){
   const gen=document.createElement('button');gen.type='button';gen.className='pri';gen.disabled=puzBusy;gen.textContent=puzBusy?'L’IA prépare un puzzle…':'Nouveau puzzle de l’IA';gen.onclick=newPuzzle;
@@ -1042,7 +1063,7 @@ function newPuzzle(){
   if(puzBusy)return;puzBusy=true;renderPuz();
   setTimeout(()=>{ /* génération hors du rendu ; plusieurs tentatives si la position idéale n'est pas trouvée */
     const a=loadAI(),it=aiIntel();let p=null;
-    for(let k=0;k<4&&!p;k++)p=E.genPuzzle(Math.random,it,{w:a.c||a.w,book:a.book},1500);
+    for(let k=0;k<4&&!p;k++)p=E.genPuzzle(Math.random,it,{w:a.c||a.w,book:a.book,sbook:a.sbook,antiBook:a.antiBook,antiSBook:a.antiSBook,opponent:a.opponent},1500);
     puzBusy=false;
     if(!p){renderPuz();note('Aucun puzzle trouvé cette fois, réessayez.');return}
     puzs.push(p);renderPuz();startPuzzle(puzs.length-1);
