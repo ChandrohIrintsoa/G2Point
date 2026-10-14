@@ -850,7 +850,15 @@ function fillThemes(){
   sel.replaceChildren(...THEMES.map(t=>{const o=document.createElement('option'),ok=n>=t.need;o.value=t.id;o.disabled=!ok;o.textContent=ok?t.name:t.name+' 🔒 ('+t.need+' défi'+(t.need>1?'s':'')+' du jour)';return o}));
   const t=THEMES.find(x=>x.id==cur&&n>=x.need)?cur:'neon';sel.value=t;setTheme(t);
 }
-function setTheme(id){document.documentElement.dataset.theme=id;try{localStorage.setItem('g2p.theme',id)}catch(e){}COL=null;dirty=true;draw()}
+function updateThemeSwatches(){
+  const host=$('themeSwatches');if(!host)return;
+  const styles=getComputedStyle(document.documentElement);
+  host.replaceChildren(...[0,1,2,3].map(i=>{
+    const dot=document.createElement('span'),color=styles.getPropertyValue('--c'+i).trim();
+    dot.style.background=color;dot.style.color=color;dot.setAttribute('aria-hidden','true');return dot;
+  }));
+}
+function setTheme(id){document.documentElement.dataset.theme=id;try{localStorage.setItem('g2p.theme',id)}catch(e){}COL=null;dirty=true;updateThemeSwatches();draw()}
 $('theme').onchange=()=>setTheme($('theme').value);
 
 /* ===== Écran de victoire + confettis ===== */
