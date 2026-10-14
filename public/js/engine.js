@@ -280,11 +280,11 @@ function aiMove(s,rnd=Math.random,P){
     /* Recherche itérative : on conserve toujours le meilleur coup déjà évalué si le budget expire.
        Le cache de transpositions partage les positions identiques entre les branches. */
     const budget=900,deadline=nowMs()+budget,ctx={table:new Map(),deadline,aborted:false,nodes:0};
-    const maxDepth=Math.min(SEARCH_DEPTH,s.free<24?4:s.free<80?3:2);
+    const maxDepth=Math.min(SEARCH_DEPTH,s.free<24?4:s.free<80?3:2),baseScores=new Map(scored.map(c=>[c.m.join(','),c.v]));
     for(let depth=1;depth<=maxDepth&&!ctx.aborted;depth++){
       const iteration=scored.slice(0,HARD_TOP).map(c=>{
         const a=clone(s);apply(a,c.m);
-        return{m:c.m,v:c.v+searchBeam(a,t,depth,SEARCH_BEAM,w,book,{...L,sbook:strategyBook},profile,ctx)*.22};
+        return{m:c.m,v:baseScores.get(c.m.join(','))+searchBeam(a,t,depth,SEARCH_BEAM,w,book,{...L,sbook:strategyBook},profile,ctx)*.22};
       });
       if(!ctx.aborted)for(const q of iteration){const target=scored.find(c=>c.m[0]===q.m[0]&&c.m[1]===q.m[1]);if(target)target.v=q.v}
       scored.sort((p,q)=>q.v-p.v);
