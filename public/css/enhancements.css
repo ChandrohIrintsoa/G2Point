@@ -63,3 +63,11 @@ body.board-fs{overflow:hidden}
 .demo-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
 .demo-actions button{flex:1}
 @media(max-width:480px){.live-opts{grid-template-columns:1fr 1fr}.live-opts label:first-child{grid-column:1/-1}}
+
+
+/* Discussion et notifications au-dessus du calque de jeu en plein écran. */
+#chatToasts{z-index:10030}
+#chatDialog{z-index:10040}
+body.board-fs #chatDialog .chat-box{max-height:min(72dvh,640px)}
+body.board-fs #chatDialog .chat-messages{max-height:min(46dvh,360px);min-height:110px}
+body.board-fs #chatToasts{position:fixed;z-index:10030;top:calc(12px + env(safe-area-inset-top));right:10px}
