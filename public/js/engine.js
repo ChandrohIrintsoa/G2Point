@@ -5,7 +5,7 @@ const grid=(W,H,v)=>Array.from({length:H},()=>Array(W).fill(v));
 const tmOf=(tm,p)=>tm?p%2:p;
 const CAND_RADIUS=4;      /* scan tactique à rayon 4 autour de chaque point existant */
 const MIN_LINK=2;         /* un point ne peut fermer une boucle que s'il touche ≥2 de mes points vivants */
-const HARD_TOP=5,HARD_REPLY=.8; /* niveau difficile : réponses adverses examinées sur les 5 meilleurs coups */
+const HARD_TOP=5,HARD_REPLY=.8,SEARCH_BEAM=4,SEARCH_DEPTH=3; /* recherche limitée : 3 demi-coups, 4 branches par niveau */
 const LEVELS=[{name:'Facile',noise:4,block:.3,book:false,deep:false},{name:'Normal',noise:.3,block:1,book:true,deep:false},{name:'Difficile',noise:.05,block:1,book:true,deep:true}];
 function create(w,h,n,tm){const K=tm?2:n;return{n:0,w,h,N:n,tm:!!tm,o:grid(w,h,0),d:grid(w,h,false),sc:Array(K).fill(0),big:Array(K).fill(0),combo:0,loops:[],cur:0,bonus:false,cap:[],capT:0,blk:grid(w,h,false),free:w*h}}
 /* Case jouable : dans le terrain, vide, et hors territoire confiné (zone fermée où une capture a eu lieu) */
@@ -147,6 +147,66 @@ function learn(book,mv,w,h,n,tm,win,focusPlayer=null){
     record(book,k,gain,won);record(book,sk,gain,won);
   }
 }
+/* Profil adaptatif de l'adversaire : statistiques agrégées, sans conserver de données personnelles.
+   captureRate mesure la fréquence des captures ; clusterRate les coups joués près de ses propres points. */
+function observeOpponent(profile,mv,w,h,n,tm,focusPlayer=0){
+  const p=profile&&typeof profile==='object'?profile:{};
+  const out={samples:Math.max(0,+p.samples||0),captures:Math.max(0,+p.captures||0),cluster:Math.max(0,+p.cluster||0),edge:Math.max(0,+p.edge||0)};
+  const s=create(w,h,n,tm);
+  for(const m of mv){
+    if(!legal(s,m[0],m[1]))continue;
+    const t=tmOf(tm,s.cur),x=m[0],y=m[1],mine=links(s,x,y,t);
+    const before=s.sc[t];apply(s,m);
+    if(t===focusPlayer){out.samples++;if(s.sc[t]>before)out.captures++;if(mine>=2)out.cluster++;if(x<2||y<2||x>=w-2||y>=h-2)out.edge++}
+  }
+  return out;
+}
+function opponentStyle(p){
+  const n=Math.max(1,+p?.samples||0);
+  return{capture:Math.min(1,(+p?.captures||0)/n),cluster:Math.min(1,(+p?.cluster||0)/n),edge:Math.min(1,(+p?.edge||0)/n)};
+}
+function positionValue(s,root,weights,profile){
+  const opp=1-root,style=opponentStyle(profile);
+  let v=(s.sc[root]-s.sc[opp])*(weights[0]+weights[1])*.5;
+  let mine=0,theirs=0,frontier=0;
+  for(let y=0;y<s.h;y++)for(let x=0;x<s.w;x++){
+    const p=s.o[y][x];if(!p||s.d[y][x])continue;
+    const t=p-1;if(t===root)mine++;else theirs++;
+    const near=links(s,x,y,t);
+    if(t===root)frontier+=near*.035;else frontier-=near*.035*(1+style.capture*.25);
+  }
+  v+=(mine-theirs)*.025+frontier;
+  return v;
+}
+/* Recherche minimax à profondeur limitée. Chaque nœud ne conserve que les meilleurs candidats
+   selon une évaluation tactique rapide ; les captures donnent un tour supplémentaire au même joueur. */
+function searchBeam(s,root,depth,beam,weights,book,level,profile,noise){
+  if(depth<=0||s.free<=0)return positionValue(s,root,weights,profile);
+  const actor=tmOf(s.tm,s.cur),opp=1-actor,{list}=cands(s);
+  if(!list.length)return positionValue(s,root,weights,profile);
+  const style=opponentStyle(profile),ranked=[];
+  for(const [x,y] of list){
+    const next=clone(s);if(!apply(next,[x,y]))continue;
+    const own=next.sc[actor]-s.sc[actor],against=next.sc[1-actor]-s.sc[1-actor];
+    let h=(own-against)*(weights[0]+weights[1])*.5;
+    const same=links(s,x,y,actor),enemy=links(s,x,y,1-actor);
+    h+=same*weights[3]+enemy*weights[4];
+    if(actor!==root)h+=enemy*style.capture*weights[2]*.3;
+    const key=book&&book[strategyKey(s,x,y,actor)];
+    if(level.book&&key)h+=weights[5]*Math.max(-1,Math.min(2,(key[1]+key[2])/(key[0]+2)));
+    ranked.push({next,h,actor:tmOf(next.tm,next.cur),bonus:next.bonus});
+  }
+  ranked.sort((a,b)=>b.h-a.h);
+  const choices=ranked.slice(0,beam);
+  if(actor===root){
+    let best=-Infinity;
+    for(const c of choices)best=Math.max(best,c.h+searchBeam(c.next,root,depth-1,beam,weights,book,level,profile,noise));
+    return best;
+  }
+  let worst=Infinity;
+  for(const c of choices)worst=Math.min(worst,c.h+searchBeam(c.next,root,depth-1,beam,weights,book,level,profile,noise));
+  return worst;
+}
 /* Cases candidates : vides, hors territoire confiné, proches d'un point existant */
 function cands(s){
   const W=s.w,H=s.h,out=[];let any=false;
@@ -166,7 +226,7 @@ function replyGain(s,opp){
   return m;
 }
 function aiMove(s,rnd=Math.random,P){
-  const W=s.w,H=s.h,t=tmOf(s.tm,s.cur),opp=1-t,w=(P&&P.w)||DEFAULT_W,book=P&&P.book,L=LEVELS[(P&&P.lvl!=null)?P.lvl:1]||LEVELS[1];
+  const W=s.w,H=s.h,t=tmOf(s.tm,s.cur),opp=1-t,w=(P&&P.w)||DEFAULT_W,book=P&&P.book,L=LEVELS[(P&&P.lvl!=null)?P.lvl:1]||LEVELS[1],profile=P&&P.opponent;
   const {any,list:c0}=cands(s),Z=P&&P.zone,cand=Z?c0.filter(([x,y])=>x>=Z[0]&&x<=Z[1]&&y>=Z[2]&&y<=Z[3]):c0; /* zone optionnelle : jeu compact (puzzles) */
   if(!any){const c=[W>>1,H>>1];return legal(s,c[0],c[1])?c:null}
   if(!cand.length){for(let y=0;y<H;y++)for(let x=0;x<W;x++)if(legal(s,x,y)&&(!Z||(x>=Z[0]&&x<=Z[1]&&y>=Z[2]&&y<=Z[3])))return[x,y];return null}
@@ -182,10 +242,19 @@ function aiMove(s,rnd=Math.random,P){
     v+=rnd()*L.noise;scored.push({m:[x,y],v,cap:a.bonus});
   }
   scored.sort((p,q)=>q.v-p.v);
-  if(L.deep){ /* difficile : on regarde la meilleure réponse adverse pour les meilleurs coups */
+  if(L.deep){
+    /* Phase 1 : pénalité tactique immédiate, renforcée si l'adversaire est agressif. */
+    const style=opponentStyle(profile),defense=1+style.capture*.35+style.cluster*.2;
     for(const c of scored.slice(0,HARD_TOP)){
-      if(c.cap)continue; /* je rejoue après une capture : pas de réponse immédiate */
-      const a=clone(s);apply(a,c.m);c.v-=replyGain(a,opp)*w[1]*HARD_REPLY;
+      if(c.cap)continue;
+      const a=clone(s);apply(a,c.m);
+      c.v-=replyGain(a,opp)*w[1]*HARD_REPLY*defense;
+    }
+    /* Phase 2 : anticipation alternée sur trois demi-coups avec une largeur de faisceau bornée. */
+    for(const c of scored.slice(0,HARD_TOP)){
+      const a=clone(s);apply(a,c.m);
+      const continuation=searchBeam(a,t,SEARCH_DEPTH-1,SEARCH_BEAM,w,book,L,profile,0);
+      c.v+=continuation*.22;
     }
     scored.sort((p,q)=>q.v-p.v);
   }
@@ -216,6 +285,6 @@ function genPuzzle(rnd=Math.random,intel=0,P,maxMs=1500){
   }
   return null;
 }
-const api={genPuzzle,puzzleSpec,create,scan,apply,legal,links,tmOf,grid,clone,rng,aiMove,learn,teach,patKey,strategyKey,mutate,DEFAULT_W,LEVELS};
+const api={genPuzzle,puzzleSpec,create,scan,apply,legal,links,tmOf,grid,clone,rng,aiMove,learn,teach,observeOpponent,opponentStyle,positionValue,patKey,strategyKey,mutate,DEFAULT_W,LEVELS};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.G2Engine=api;
 })(typeof window!=='undefined'?window:globalThis);
