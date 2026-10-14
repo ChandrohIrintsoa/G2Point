@@ -386,7 +386,7 @@ function genPuzzle(rnd=Math.random,intel=0,P,maxMs=1500){
   while(Date.now()-t0<maxMs){
     const s=create(11,15,2,false),mv=[];
     while(s.free>0&&mv.length<60&&Date.now()-t0<maxMs){
-      let m=aiMove(s,rnd,{w:P&&P.w,book:P&&P.book,lvl:s.cur?0:1,zone:ZONE});if(!m)break;
+      let m=aiMove(s,rnd,{...(P||{}),lvl:s.cur?0:1,zone:ZONE});if(!m)break;
       if(!s.cur){ /* Rouge construit sa chaîne mais ne conclut jamais : la capture reste à trouver */
         const t=clone(s);apply(t,m);
         if(t.sc[0]>s.sc[0]){const alt=cands(s).list.filter(([x,y])=>x>=ZONE[0]&&x<=ZONE[1]&&y>=ZONE[2]&&y<=ZONE[3]&&(()=>{const c=clone(s);apply(c,[x,y]);return c.sc[0]==s.sc[0]})());if(alt.length)m=alt[(rnd()*alt.length)|0]}
