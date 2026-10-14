@@ -156,7 +156,7 @@ function loadAI(){
   a.active=Math.max(0,Math.min(a.pop.length-1,Number(raw.active)||0));
   if(raw.schema!==AI_SCHEMA){
     if(!jget('g2p.ai.bak',null))jset('g2p.ai.bak',raw);
-    a.schemaHistory.push({from:Number(raw.schema)||1,at:now});a.c=a.w.slice();a.schema=AI_SCHEMA;
+    a.schemaHistory.push({from:Number(raw.schema)||1,at:now});a.c=Array.isArray(raw.c)&&raw.c.length===6&&raw.c.every(Number.isFinite)?raw.c.slice():a.w.slice();a.schema=AI_SCHEMA;
     jset('g2p.ai',a);
   }
   return a;
@@ -168,7 +168,7 @@ function saveAI(a){
   a.book=trim(a.book);a.antiBook=trim(a.antiBook);a.sbook=trim(a.sbook);
   jset('g2p.ai',a);cloudPersistAI(a);
 }
-function aiPick(){aiP=daily?null:(()=>{const a=loadAI();return{w:a.w,book:a.book,antiBook:a.antiBook,opponent:a.opponent,lvl}})()}
+function aiPick(){aiP=daily?null:(()=>{const a=loadAI(),candidate=a.pop[a.active];return{w:candidate&&candidate.w||a.w,book:a.book,antiBook:a.antiBook,opponent:a.opponent,lvl}})()}
 function auditAIGame(a,win){
   const state=E.create(W,H,N,TM),now=Date.now();
   for(const move of moves){const player=E.tmOf(TM,state.cur),key=E.patKey(state,move[0],move[1],player),strategy=E.strategyKey(state,move[0],move[1],player);if(!E.apply(state,move))continue;a.log.push({at:now,player,key,strategy,gain:state.capT===player?state.cap.length:-state.cap.length,won:win.includes(player)})}
