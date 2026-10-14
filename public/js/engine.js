@@ -334,10 +334,10 @@ function aiMove(s,rnd=Math.random,P){
     }
     /* Recherche itérative : on conserve toujours le meilleur coup déjà évalué si le budget expire.
        Le cache de transpositions partage les positions identiques entre les branches. */
-    const budget=900,deadline=nowMs()+budget,ctx={table:new Map(),deadline,aborted:false,nodes:0};
-    const maxDepth=Math.min(SEARCH_DEPTH,s.free<24?4:s.free<80?3:2),baseScores=new Map(scored.map(c=>[c.m.join(','),c.v]));
+    const budget=L.champion?1400:900,deadline=nowMs()+budget,ctx={table:new Map(),deadline,aborted:false,nodes:0};
+    const maxDepth=Math.min(L.champion?5:SEARCH_DEPTH,s.free<24?5:s.free<80?3:2),baseScores=new Map(scored.map(c=>[c.m.join(','),c.v])),top=L.champion?8:HARD_TOP,beam=L.champion?8:SEARCH_BEAM;
     for(let depth=1;depth<=maxDepth&&!ctx.aborted;depth++){
-      const iteration=scored.slice(0,HARD_TOP).map(c=>{
+      const iteration=scored.slice(0,top).map(c=>{
         const a=clone(s);apply(a,c.m);
         return{m:c.m,v:baseScores.get(c.m.join(','))+searchBeam(a,t,depth,beam,w,book,{...L,sbook:strategyBook},profile,ctx)*.22};
       });
