@@ -6,7 +6,7 @@ const tmOf=(tm,p)=>tm?p%2:p;
 const CAND_RADIUS=4;      /* scan tactique à rayon 4 autour de chaque point existant */
 const MIN_LINK=2;         /* un point ne peut fermer une boucle que s'il touche ≥2 de mes points vivants */
 const HARD_TOP=5,HARD_REPLY=.8,SEARCH_BEAM=6,SEARCH_DEPTH=4,TRANSPOSE_MAX=10000; /* recherche bornée, cache de transpositions */
-const LEVELS=[{name:'Facile',noise:4,block:.3,book:false,deep:false},{name:'Normal',noise:.3,block:1,book:true,deep:false},{name:'Difficile',noise:.05,block:1,book:true,deep:true}];
+const LEVELS=[{name:'Facile',noise:4,block:.3,book:false,deep:false},{name:'Normal',noise:.3,block:1,book:true,deep:false},{name:'Difficile',noise:.05,block:1,book:true,deep:true},{name:'Champion',noise:0,block:1.35,book:true,deep:true,champion:true}];
 function create(w,h,n,tm){const K=tm?2:n;return{n:0,w,h,N:n,tm:!!tm,o:grid(w,h,0),d:grid(w,h,false),sc:Array(K).fill(0),big:Array(K).fill(0),combo:0,loops:[],cur:0,bonus:false,cap:[],capT:0,blk:grid(w,h,false),terr:Array(K).fill(0),free:w*h}}
 /* Case jouable : dans le terrain, vide, et hors territoire confiné (zone fermée où une capture a eu lieu) */
 const legal=(s,x,y)=>x>=0&&y>=0&&x<s.w&&y<s.h&&!s.o[y][x]&&!s.blk[y][x];
@@ -339,7 +339,7 @@ function aiMove(s,rnd=Math.random,P){
     for(let depth=1;depth<=maxDepth&&!ctx.aborted;depth++){
       const iteration=scored.slice(0,HARD_TOP).map(c=>{
         const a=clone(s);apply(a,c.m);
-        return{m:c.m,v:baseScores.get(c.m.join(','))+searchBeam(a,t,depth,SEARCH_BEAM,w,book,{...L,sbook:strategyBook},profile,ctx)*.22};
+        return{m:c.m,v:baseScores.get(c.m.join(','))+searchBeam(a,t,depth,beam,w,book,{...L,sbook:strategyBook},profile,ctx)*.22};
       });
       if(!ctx.aborted)for(const q of iteration){const target=scored.find(c=>c.m[0]===q.m[0]&&c.m[1]===q.m[1]);if(target)target.v=q.v}
       scored.sort((p,q)=>q.v-p.v);
