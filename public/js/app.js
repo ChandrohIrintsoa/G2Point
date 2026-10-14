@@ -132,6 +132,21 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{COL=nu
 
 /* Mémoire IA v4 : migration fusionnée, sauvegarde de secours et journal borné. */
 const AI_SCHEMA=4,AI_LOG_MAX=500,AI_BOOK_MAX=1500,AI_BOOK_KEEP=1200;
+let aiPendingLog=[],aiLogTimer=0,aiLogGame='';
+function queueAIMoveLog(move){
+  if(!ai||daily||mode!=='local'||!S)return;
+  const player=E.tmOf(TM,S.cur),[x,y]=move;
+  if(!aiLogGame)aiLogGame=String(Date.now())+'-'+moves.length;
+  const before=E.clone(S),key=E.patKey(before,x,y,player),strategy=E.strategyKey(before,x,y,player),after=E.clone(before);
+  if(!E.apply(after,move))return;
+  aiPendingLog.push({at:Date.now(),game:aiLogGame,player,key,strategy,gain:after.capT===player?after.cap.length:-after.cap.length,won:null});
+  aiPendingLog=aiPendingLog.slice(-AI_LOG_MAX);
+  clearTimeout(aiLogTimer);aiLogTimer=setTimeout(flushAIMoveLog,2000);
+}
+function flushAIMoveLog(){
+  clearTimeout(aiLogTimer);aiLogTimer=0;if(!aiPendingLog.length)return;
+  const a=loadAI();a.log=[...(a.log||[]),...aiPendingLog].slice(-AI_LOG_MAX);aiPendingLog=[];saveAI(a);
+}
 const AIDEF=()=>({schema:AI_SCHEMA,w:E.DEFAULT_W.slice(),c:E.DEFAULT_W.slice(),st:{g:0,w:0},book:{},antiBook:{},antiSBook:{},sbook:{},log:[],games:0,manualLessons:0,opponent:{samples:0,captures:0,cluster:0,edge:0},pop:[],active:0,schemaHistory:[]});
 function normalizeBook(book,now){
   const out={};if(!book||typeof book!=='object'||Array.isArray(book))return out;
@@ -172,11 +187,7 @@ function saveAI(a){
   jset('g2p.ai',a);cloudPersistAI(a);
 }
 function aiPick(){aiP=daily?null:(()=>{const a=loadAI(),candidate=a.pop[a.active];return{w:candidate&&candidate.w||a.w,book:a.book,antiBook:a.antiBook,antiSBook:a.antiSBook,sbook:a.sbook,opponent:a.opponent,lvl}})()}
-function auditAIGame(a,win){
-  const state=E.create(W,H,N,TM),now=Date.now();
-  for(const move of moves){const player=E.tmOf(TM,state.cur),key=E.patKey(state,move[0],move[1],player),strategy=E.strategyKey(state,move[0],move[1],player);if(!E.apply(state,move))continue;a.log.push({at:now,player,key,strategy,gain:state.capT===player?state.cap.length:-state.cap.length,won:win.includes(player)})}
-  a.log=a.log.slice(-AI_LOG_MAX);
-}
+
 function evolveAI(a,won,playerElo=1200){
   a.pop=a.pop.length===8?a.pop:freshPopulation(a.w);
   const p=a.pop[a.active]||a.pop[0],score=won?1:0,elo=p.elo||1200,expected=1/(1+Math.pow(10,(playerElo-elo)/400));
@@ -190,11 +201,11 @@ function evolveAI(a,won,playerElo=1200){
   }
 }
 function learnFromGame(win,r){
-  if(!ai||daily||mode!=='local'||!aiP||lvl<=0)return;
-  const a=loadAI();a.st=a.st||{g:0,w:0};
+  if(!ai||daily||mode!=='local'||!aiP)return;
+  flushAIMoveLog();const a=loadAI();a.st=a.st||{g:0,w:0};
   E.learn(a.book,moves,W,H,N,TM,win,1,a.sbook);
   if(win.includes(0))E.learn(a.antiBook,moves,W,H,N,TM,win,0,a.antiSBook);
-  a.opponent=E.observeOpponent(a.opponent,moves,W,H,N,TM,0);auditAIGame(a,win);
+  a.opponent=E.observeOpponent(a.opponent,moves,W,H,N,TM,0);for(const entry of a.log)if(entry.game===aiLogGame&&entry.won==null)entry.won=win.includes(entry.player);aiLogGame='';
   a.st.g++;if(win.includes(1))a.st.w++;
   const playerRating=(loadProg().elo[eloKey()]||1200);evolveAI(a,win.includes(1),playerRating);saveAI(a);aiPick();
 }
@@ -306,6 +317,7 @@ function aiTurn(){
     if(!ok())return;
     const move=E.aiMove(S,E.rng((daily?seedOf(daily):Date.now())+moves.length),aiP);
     if(!move)return;
+    queueAIMoveLog(move);
     const why=explainAIMove(S,move);insight.textContent=why.details+' · confiance '+Math.round(why.confidence*100)+' %';insight.dataset.reason=why.type;insight.hidden=false;
     moves=[...moves,move];upd();saveLocal();aiTurn();
   },AI_DELAY_MS);
@@ -488,6 +500,7 @@ async function place(pt){
   if(!pt||!can()||S.o[pt[1]][pt[0]])return;
   if(S.blk[pt[1]][pt[0]]){note('Territoire fermé : cette case est inaccessible.');return}
   note('');
+  queueAIMoveLog(pt);
   moves=[...moves,pt];upd(); /* coup optimiste : visible tout de suite, sans attendre le serveur */
   if(mode==='local'){saveLocal();aiTurn();return}
   const sentCode=code;
