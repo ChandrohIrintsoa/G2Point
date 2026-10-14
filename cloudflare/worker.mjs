@@ -105,6 +105,18 @@ async function handlePlayerAi(req,env,h){
   return json({error:'méthode refusée'},405,h);
 }
 
+/* Le cloud n'accepte que les leçons confirmées et horodatées. */
+export function filterSharedBook(book,now=Date.now()){
+  if(!book||typeof book!=='object'||Array.isArray(book))return{};
+  const out={};
+  for(const [key,v] of Object.entries(book)){
+    if(typeof key!=='string'||key.length>180||!Array.isArray(v)||v.length<4)continue;
+    const count=Number(v[0]),gain=Number(v[1]),wins=Number(v[2]),lastSeen=Number(v[3]);
+    if(!Number.isSafeInteger(count)||count<3||count>10000000||!Number.isFinite(gain)||!Number.isFinite(wins)||wins<0||wins>count||!Number.isFinite(lastSeen)||lastSeen<=0||lastSeen>now+86400000)continue;
+    out[key]=[count,gain,wins,lastSeen];
+  }
+  return out;
+}
 function trim(book){
   const ks=Object.keys(book);if(ks.length<=BOOK_MAX)return book;
   ks.sort((a,b)=>book[b][0]-book[a][0]);const nb={};ks.slice(0,BOOK_KEEP).forEach(k=>nb[k]=book[k]);return nb;
@@ -135,7 +147,7 @@ export async function handleArchive(req,env,h){
 
 export async function handleAi(env,h){
   const db=env.DB;let book={};try{book=JSON.parse(await getStat(db,'ai_book_v2')||'{}')}catch(e){}
-  return json({schema:2,book,games:+await getStat(db,'ai_games_v2')||0},200,{...h,'Cache-Control':'public, max-age=60'});
+  return json({schema:2,book:filterSharedBook(book),games:+await getStat(db,'ai_games_v2')||0},200,{...h,'Cache-Control':'public, max-age=60'});
 }
 
 export default{
