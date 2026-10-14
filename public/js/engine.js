@@ -5,7 +5,7 @@ const grid=(W,H,v)=>Array.from({length:H},()=>Array(W).fill(v));
 const tmOf=(tm,p)=>tm?p%2:p;
 const CAND_RADIUS=4;      /* scan tactique à rayon 4 autour de chaque point existant */
 const MIN_LINK=2;         /* un point ne peut fermer une boucle que s'il touche ≥2 de mes points vivants */
-const HARD_TOP=5,HARD_REPLY=.8,SEARCH_BEAM=4,SEARCH_DEPTH=3; /* recherche limitée : 3 demi-coups, 4 branches par niveau */
+const HARD_TOP=5,HARD_REPLY=.8,SEARCH_BEAM=6,SEARCH_DEPTH=4,TRANSPOSE_MAX=10000; /* recherche bornée, cache de transpositions */
 const LEVELS=[{name:'Facile',noise:4,block:.3,book:false,deep:false},{name:'Normal',noise:.3,block:1,book:true,deep:false},{name:'Difficile',noise:.05,block:1,book:true,deep:true}];
 function create(w,h,n,tm){const K=tm?2:n;return{n:0,w,h,N:n,tm:!!tm,o:grid(w,h,0),d:grid(w,h,false),sc:Array(K).fill(0),big:Array(K).fill(0),combo:0,loops:[],cur:0,bonus:false,cap:[],capT:0,blk:grid(w,h,false),free:w*h}}
 /* Case jouable : dans le terrain, vide, et hors territoire confiné (zone fermée où une capture a eu lieu) */
@@ -122,8 +122,17 @@ function strategyKey(s,x,y,t){
   const edge=x<2||y<2||x>=s.w-2||y>=s.h-2?'B':'C';
   return `S|${phase}|${pressure}|${danger}|${chain}|${edge}`;
 }
-function record(book,key,gain,won){
-  const e=book[key]||(book[key]=[0,0,0]);e[0]++;e[1]+=gain;if(won)e[2]++;
+function record(book,key,gain,won,now=Date.now()){
+  const e=book[key]||(book[key]=[0,0,0,now]);
+  e[0]++;e[1]+=gain;if(won)e[2]++;e[3]=now;
+}
+/* Les anciennes leçons restent présentes, mais leur influence décroît sur environ 30 jours. */
+function bookValue(e,now=Date.now(),tau=30*864e5){
+  if(!Array.isArray(e))return 0;
+  const count=Math.max(0,+e[0]||0),gain=+e[1]||0,wins=+e[2]||0;
+  if(!count)return 0;
+  const last=Number.isFinite(+e[3])?+e[3]:now,age=Math.max(0,now-last);
+  return ((gain*1.5+wins*.8)/(count+2))*Math.exp(-age/tau);
 }
 /* Enregistre une réponse choisie par l'entraîneur dans le motif et le contexte stratégique observés. */
 function teach(book,s,x,y,t=0,quality=1){
@@ -181,12 +190,25 @@ function positionValue(s,root,weights,profile){
 }
 /* Recherche minimax à profondeur limitée. Chaque nœud ne conserve que les meilleurs candidats
    selon une évaluation tactique rapide ; les captures donnent un tour supplémentaire au même joueur. */
-function searchBeam(s,root,depth,beam,weights,book,level,profile,noise){
-  if(depth<=0||s.free<=0)return positionValue(s,root,weights,profile);
-  const actor=tmOf(s.tm,s.cur),opp=1-actor,{list}=cands(s);
-  if(!list.length)return positionValue(s,root,weights,profile);
+function stateHash(s){
+  let h=2166136261;
+  const put=v=>{h^=v;h=Math.imul(h,16777619)};
+  put(s.cur);put(s.bonus?1:0);
+  for(let y=0;y<s.h;y++)for(let x=0;x<s.w;x++){put(s.o[y][x]);put(s.d[y][x]?1:0);put(s.blk[y][x]?1:0)}
+  for(const v of s.sc)put(v);
+  return (h>>>0).toString(36);
+}
+function searchBeam(s,root,depth,beam,weights,book,level,profile,ctx){
+  const evaluate=()=>positionValue(s,root,weights,profile);
+  if(depth<=0||s.free<=0||ctx.aborted)return evaluate();
+  if((++ctx.nodes&31)===0&&nowMs()>ctx.deadline){ctx.aborted=true;return evaluate()}
+  const hash=stateHash(s)+'|'+root+'|'+depth,hit=ctx.table.get(hash);
+  if(hit!==undefined)return hit;
+  const actor=tmOf(s.tm,s.cur),{list}=cands(s);
+  if(!list.length)return evaluate();
   const style=opponentStyle(profile),ranked=[];
   for(const [x,y] of list){
+    if(ctx.aborted)break;
     const next=clone(s);if(!apply(next,[x,y]))continue;
     const own=next.sc[actor]-s.sc[actor],against=next.sc[1-actor]-s.sc[1-actor];
     let h=(actor===root?own-against:against-own)*(weights[0]+weights[1])*.5;
@@ -194,20 +216,23 @@ function searchBeam(s,root,depth,beam,weights,book,level,profile,noise){
     h+=sign*(same*weights[3]+enemy*weights[4]);
     if(actor!==root)h-=enemy*style.capture*weights[2]*.3;
     const key=book&&book[strategyKey(s,x,y,actor)];
-    if(level.book&&key)h+=weights[5]*Math.max(-1,Math.min(2,(key[1]+key[2])/(key[0]+2)));
-    ranked.push({next,h,actor:tmOf(next.tm,next.cur),bonus:next.bonus});
+    if(level.book&&key)h+=weights[5]*bookValue(key);
+    ranked.push({next,h});
   }
   ranked.sort((a,b)=>b.h-a.h);
   const choices=ranked.slice(0,beam);
-  if(actor===root){
-    let best=-Infinity;
-    for(const c of choices)best=Math.max(best,c.h+searchBeam(c.next,root,depth-1,beam,weights,book,level,profile,noise));
-    return best;
+  let value=actor===root?-Infinity:Infinity;
+  for(const c of choices){
+    if(ctx.aborted)break;
+    const v=c.h+searchBeam(c.next,root,depth-1,beam,weights,book,level,profile,ctx);
+    value=actor===root?Math.max(value,v):Math.min(value,v);
   }
-  let worst=Infinity;
-  for(const c of choices)worst=Math.min(worst,c.h+searchBeam(c.next,root,depth-1,beam,weights,book,level,profile,noise));
-  return worst;
+  if(!Number.isFinite(value))value=evaluate();
+  if(ctx.table.size>=TRANSPOSE_MAX)ctx.table.clear();
+  ctx.table.set(hash,value);
+  return value;
 }
+const nowMs=()=>typeof performance!=='undefined'&&performance.now?performance.now():Date.now();
 /* Cases candidates : vides, hors territoire confiné, proches d'un point existant */
 function cands(s){
   const W=s.w,H=s.h,out=[];let any=false;
@@ -227,7 +252,7 @@ function replyGain(s,opp){
   return m;
 }
 function aiMove(s,rnd=Math.random,P){
-  const W=s.w,H=s.h,t=tmOf(s.tm,s.cur),opp=1-t,w=(P&&P.w)||DEFAULT_W,book=P&&P.book,L=LEVELS[(P&&P.lvl!=null)?P.lvl:1]||LEVELS[1],profile=P&&P.opponent;
+  const W=s.w,H=s.h,t=tmOf(s.tm,s.cur),opp=1-t,w=(P&&P.w)||DEFAULT_W,book=P&&P.book,antiBook=P&&P.antiBook,L=LEVELS[(P&&P.lvl!=null)?P.lvl:1]||LEVELS[1],profile=P&&P.opponent;
   const {any,list:c0}=cands(s),Z=P&&P.zone,cand=Z?c0.filter(([x,y])=>x>=Z[0]&&x<=Z[1]&&y>=Z[2]&&y<=Z[3]):c0; /* zone optionnelle : jeu compact (puzzles) */
   if(!any){const c=[W>>1,H>>1];return legal(s,c[0],c[1])?c:null}
   if(!cand.length){for(let y=0;y<H;y++)for(let x=0;x<W;x++)if(legal(s,x,y)&&(!Z||(x>=Z[0]&&x<=Z[1]&&y>=Z[2]&&y<=Z[3])))return[x,y];return null}
@@ -238,8 +263,10 @@ function aiMove(s,rnd=Math.random,P){
     const b=clone(s);b.cur=opp;apply(b,[x,y]);v+=(b.sc[opp]-s.sc[opp])*w[2]*L.block; /* case où l'adversaire capturerait */
     for(const [dx,dy] of N8){const u=x+dx,q=y+dy;if(u<0||q<0||u>=W||q>=H)continue;const p=s.o[q][u];if(p==t+1)v+=w[3];else if(p)v+=w[4]}
     const e=L.book&&book&&book[patKey(s,x,y,t)],se=L.book&&book&&book[strategyKey(s,x,y,t)];
-    if(e)v+=w[5]*Math.max(-2,Math.min(3,(e[1]*1.5+e[2]*.8)/(e[0]+2))); /* techniques vues dans les parties */
-    if(se&&se[0]>=3)v+=w[5]*.65*Math.max(-2,Math.min(3,(se[1]*1.25+se[2])/(se[0]+2))); /* stratégie validée par plusieurs observations */
+    if(e)v+=w[5]*Math.max(-2,Math.min(3,bookValue(e)));
+    if(se&&se[0]>=3)v+=w[5]*.65*Math.max(-2,Math.min(3,bookValue(se)));
+    /* Anti-motifs séparés : pénalise les schémas qui ont conduit à une victoire humaine. */
+    if(antiBook){const ak=antiBook[patKey(s,x,y,opp)],ask=antiBook[strategyKey(s,x,y,opp)];if(ak)v-=w[5]*1.4*Math.max(0,bookValue(ak));if(ask&&ask[0]>=2)v-=w[5]*.7*Math.max(0,bookValue(ask));}
     v+=rnd()*L.noise;scored.push({m:[x,y],v,cap:a.bonus});
   }
   scored.sort((p,q)=>q.v-p.v);
@@ -251,11 +278,17 @@ function aiMove(s,rnd=Math.random,P){
       const a=clone(s);apply(a,c.m);
       c.v-=replyGain(a,opp)*w[1]*HARD_REPLY*defense;
     }
-    /* Phase 2 : anticipation alternée sur trois demi-coups avec une largeur de faisceau bornée. */
-    for(const c of scored.slice(0,HARD_TOP)){
-      const a=clone(s);apply(a,c.m);
-      const continuation=searchBeam(a,t,SEARCH_DEPTH-1,SEARCH_BEAM,w,book,L,profile,0);
-      c.v+=continuation*.22;
+    /* Recherche itérative : on conserve toujours le meilleur coup déjà évalué si le budget expire.
+       Le cache de transpositions partage les positions identiques entre les branches. */
+    const budget=900,deadline=nowMs()+budget,ctx={table:new Map(),deadline,aborted:false,nodes:0};
+    const maxDepth=Math.min(SEARCH_DEPTH,s.free<24?4:s.free<80?3:2);
+    for(let depth=1;depth<=maxDepth&&!ctx.aborted;depth++){
+      const iteration=scored.slice(0,HARD_TOP).map(c=>{
+        const a=clone(s);apply(a,c.m);
+        return{m:c.m,v:c.v+searchBeam(a,t,depth,SEARCH_BEAM,w,book,L,profile,ctx)*.22};
+      });
+      if(!ctx.aborted)for(const q of iteration){const target=scored.find(c=>c.m[0]===q.m[0]&&c.m[1]===q.m[1]);if(target)target.v=q.v}
+      scored.sort((p,q)=>q.v-p.v);
     }
     scored.sort((p,q)=>q.v-p.v);
   }
@@ -286,6 +319,6 @@ function genPuzzle(rnd=Math.random,intel=0,P,maxMs=1500){
   }
   return null;
 }
-const api={genPuzzle,puzzleSpec,create,scan,apply,legal,links,tmOf,grid,clone,rng,aiMove,learn,teach,observeOpponent,opponentStyle,positionValue,patKey,strategyKey,mutate,DEFAULT_W,LEVELS};
+const api={genPuzzle,puzzleSpec,create,scan,apply,legal,links,tmOf,grid,clone,rng,aiMove,learn,teach,observeOpponent,opponentStyle,positionValue,bookValue,patKey,strategyKey,mutate,DEFAULT_W,LEVELS};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.G2Engine=api;
 })(typeof window!=='undefined'?window:globalThis);
