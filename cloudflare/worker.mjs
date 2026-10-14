@@ -121,17 +121,21 @@ export async function handleArchive(req,env,h){
   const ins=await db.prepare('INSERT OR IGNORE INTO game_archives(game_id,player_id,result,moves_json,width,height,players,team,mode,ip_hash) VALUES(?,?,?,?,?,?,?,?,?,?)')
     .bind(g.gameId,g.playerId,g.result,JSON.stringify(g.mv),g.w,g.h,g.n,g.tm?1:0,g.mode,ip).run();
   if(!ins.meta||!ins.meta.changes)return json({ok:true,duplicate:true},200,h); /* déjà reçue : on n'apprend pas deux fois */
-  /* apprentissage partagé : lecture-fusion-écriture (une perte occasionnelle en cas d'envois simultanés est sans gravité) */
-  let book={};try{book=JSON.parse(await getStat(db,'ai_book')||'{}')}catch(e){}
-  E.learn(book,g.mv,g.w,g.h,g.n,g.tm,g.win);book=trim(book);
-  const games=(+await getStat(db,'ai_games')||0)+1;
-  await db.batch([setStat(db,'ai_book',JSON.stringify(book)),setStat(db,'ai_games',String(games))]);
+  /* La mémoire v2 n'apprend que des coups joués par l'IA dans les parties Solo.
+     Les anciennes archives (parties humaines et auto-simulations) ne doivent plus polluer sa stratégie. */
+  let games=+await getStat(db,'ai_games_v2')||0;
+  if(g.mode==='ai'){
+    let book={};try{book=JSON.parse(await getStat(db,'ai_book_v2')||'{}')}catch(e){}
+    E.learn(book,g.mv,g.w,g.h,g.n,g.tm,g.win,1);book=trim(book);
+    games++;
+    await db.batch([setStat(db,'ai_book_v2',JSON.stringify(book)),setStat(db,'ai_games_v2',String(games))]);
+  }
   return json({ok:true,games},200,h);
 }
 
 export async function handleAi(env,h){
-  const db=env.DB;let book={};try{book=JSON.parse(await getStat(db,'ai_book')||'{}')}catch(e){}
-  return json({book,games:+await getStat(db,'ai_games')||0},200,{...h,'Cache-Control':'public, max-age=60'});
+  const db=env.DB;let book={};try{book=JSON.parse(await getStat(db,'ai_book_v2')||'{}')}catch(e){}
+  return json({schema:2,book,games:+await getStat(db,'ai_games_v2')||0},200,{...h,'Cache-Control':'public, max-age=60'});
 }
 
 export default{
