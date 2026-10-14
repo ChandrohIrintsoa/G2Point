@@ -4,7 +4,8 @@
   "scripts": {
     "test": "node --test tests/*.test.js",
     "cf:schema": "wrangler d1 execute g2point --remote --file=cloudflare/schema.sql --config cloudflare/wrangler.toml",
-    "cf:deploy": "wrangler deploy --config cloudflare/wrangler.toml"
+    "cf:deploy": "wrangler deploy --config cloudflare/wrangler.toml",
+    "bench": "node scripts/bench.js"
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^3.0.4",
