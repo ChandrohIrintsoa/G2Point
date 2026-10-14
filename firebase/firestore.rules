@@ -62,7 +62,8 @@ service cloud.firestore {
     }
 
     function validSeatClaim(seat, name, minimumPlayers) {
-      return resource.data.n >= minimumPlayers
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([seat, name])
+        && resource.data.n >= minimumPlayers
         && resource.data[seat] == ''
         && request.resource.data[seat] == request.auth.uid
         && validName(request.resource.data[name])
@@ -89,6 +90,7 @@ service cloud.firestore {
         && nc is int
         && (nc == oc || nc == (oc + 1) % resource.data.n)
         && resource.data.ended == false
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['moves', 'cur', 'lastAt'])
         && request.resource.data.lastAt == request.time
         && newMoves is list
         && newMoves.size() == oldMoves.size() + 1
@@ -103,6 +105,7 @@ service cloud.firestore {
     function validEnd() {
       return isPlayer(resource.data)
         && resource.data.ended == false
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ended'])
         && request.resource.data.ended == true;
     }
 
@@ -113,6 +116,7 @@ service cloud.firestore {
       return isPlayer(resource.data)
         && resource.data.ended == false
         && allSeated(resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ended', 'forfeit'])
         && request.resource.data.ended == true
         && request.resource.data.forfeit == c
         && [resource.data.s0, resource.data.s1, resource.data.s2, resource.data.s3][c] != request.auth.uid
@@ -126,6 +130,7 @@ service cloud.firestore {
       return isPlayer(resource.data)
         && resource.data.ended == false
         && allSeated(resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ended', 'forfeit'])
         && request.resource.data.ended == true
         && f is int
         && f >= 0 && f < resource.data.n
@@ -136,35 +141,12 @@ service cloud.firestore {
     function validRematch() {
       return isPlayer(resource.data)
         && (resource.data.ended == true || resource.data.moves.size() >= resource.data.w * resource.data.h)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['next', 'nextBy'])
         && resource.data.get('next', '') == ''
         && resource.data.get('nextBy', '') == ''
-        && request.resource.data.get('next', '') is string
-        && request.resource.data.get('nextBy', '') == request.auth.uid
-        && request.resource.data.get('next', '').matches('^[A-HJ-NP-Z2-9]{5}$');
-    }
-
-    function validGameUpdate() {
-      let changed = request.resource.data.diff(resource.data).affectedKeys();
-      let cur = resource.data.get('cur', 0);
-      let seats = [resource.data.s0, resource.data.s1, resource.data.s2, resource.data.s3];
-      let f = request.resource.data.get('forfeit', -1);
-      return signedIn() && (
-        changed.hasAny(['moves', 'cur', 'lastAt'])
-          ? changed.hasOnly(['moves', 'cur', 'lastAt']) && validMoveAppend()
-        : changed.hasAny(['s1', 'name1'])
-          ? changed.hasOnly(['s1', 'name1']) && validSeatClaim('s1', 'name1', 2)
-        : changed.hasAny(['s2', 'name2'])
-          ? changed.hasOnly(['s2', 'name2']) && validSeatClaim('s2', 'name2', 3)
-        : changed.hasAny(['s3', 'name3'])
-          ? changed.hasOnly(['s3', 'name3']) && validSeatClaim('s3', 'name3', 4)
-        : changed.hasAny(['forfeit'])
-          ? changed.hasOnly(['ended', 'forfeit']) && (f == cur && seats[cur] != request.auth.uid ? validForfeit() : validResign())
-        : changed.hasAny(['ended'])
-          ? changed.hasOnly(['ended']) && validEnd()
-        : changed.hasAny(['next', 'nextBy'])
-          ? changed.hasOnly(['next', 'nextBy']) && validRematch()
-        : false
-      );
+        && request.resource.data.next is string
+        && request.resource.data.nextBy == request.auth.uid
+        && request.resource.data.next.matches('^[A-HJ-NP-Z2-9]{5}$');
     }
 
     // Suppression d'un salon d'attente : seul son créateur peut le retirer
@@ -186,8 +168,16 @@ service cloud.firestore {
       allow get: if signedIn();
       allow list: if false;
       allow create: if gameCode.matches('^[A-HJ-NP-Z2-9]{5}$') && validNewGame();
-      // Le dispatcher ne calcule qu'une fois l'ensemble des clés modifiées.
-      allow update: if validGameUpdate();
+      allow update: if signedIn() && (
+        validSeatClaim('s1', 'name1', 2) ||
+        validSeatClaim('s2', 'name2', 3) ||
+        validSeatClaim('s3', 'name3', 4) ||
+        validMoveAppend() ||
+        validEnd() ||
+        validForfeit() ||
+        validResign() ||
+        validRematch()
+      );
       allow delete: if canDeleteWaitingGame();
 
       match /messages/{messageId} {
