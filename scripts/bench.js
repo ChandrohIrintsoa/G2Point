@@ -40,5 +40,5 @@ for(const [a,b] of pairs){
 }
 const output={schema:1,createdAt:new Date().toISOString(),commit:process.env.GITHUB_SHA||null,seedBase:0x475032,gamesPerPair,maxTurns,board:'11x15',results};
 const outDir=path.join(__dirname,'..','bench');fs.mkdirSync(outDir,{recursive:true});
-const out=path.join(outDir,'results.json');fs.writeFileSync(out,JSON.stringify(output,null,2)+'\\n');
+const out=path.join(outDir,'results.json');fs.writeFileSync(out,JSON.stringify(output,null,2)+String.fromCharCode(10));
 console.log('Résultats écrits dans '+out);
