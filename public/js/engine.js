@@ -7,11 +7,11 @@ const CAND_RADIUS=4;      /* scan tactique à rayon 4 autour de chaque point exi
 const MIN_LINK=2;         /* un point ne peut fermer une boucle que s'il touche ≥2 de mes points vivants */
 const HARD_TOP=5,HARD_REPLY=.8,SEARCH_BEAM=6,SEARCH_DEPTH=4,TRANSPOSE_MAX=10000; /* recherche bornée, cache de transpositions */
 const LEVELS=[{name:'Facile',noise:4,block:.3,book:false,deep:false},{name:'Normal',noise:.3,block:1,book:true,deep:false},{name:'Difficile',noise:.05,block:1,book:true,deep:true}];
-function create(w,h,n,tm){const K=tm?2:n;return{n:0,w,h,N:n,tm:!!tm,o:grid(w,h,0),d:grid(w,h,false),sc:Array(K).fill(0),big:Array(K).fill(0),combo:0,loops:[],cur:0,bonus:false,cap:[],capT:0,blk:grid(w,h,false),free:w*h}}
+function create(w,h,n,tm){const K=tm?2:n;return{n:0,w,h,N:n,tm:!!tm,o:grid(w,h,0),d:grid(w,h,false),sc:Array(K).fill(0),big:Array(K).fill(0),combo:0,loops:[],cur:0,bonus:false,cap:[],capT:0,blk:grid(w,h,false),terr:Array(K).fill(0),free:w*h}}
 /* Case jouable : dans le terrain, vide, et hors territoire confiné (zone fermée où une capture a eu lieu) */
 const legal=(s,x,y)=>x>=0&&y>=0&&x<s.w&&y<s.h&&!s.o[y][x]&&!s.blk[y][x];
 /* Territoire : une zone fermée qui a capturé devient inaccessible pour tous. */
-function mark(s,c){for(const [a,b] of c.cells)if(!s.blk[b][a]){s.blk[b][a]=true;if(!s.o[b][a])s.free--}}
+function mark(s,c,owner=null){for(const [a,b] of c.cells)if(!s.blk[b][a]){s.blk[b][a]=true;if(!s.o[b][a])s.free--;if(owner!=null&&s.terr)s.terr[owner]++}}
 /* Zones fermées par l'équipe t : composantes de cases non atteignables depuis le bord.
    Si `at` est fourni, on s'arrête dès que la composante contenant `at` est trouvée (early-exit).
    Version tableaux typés + tampons réutilisés : aucune allocation par case (c'était le point chaud de l'IA). */
@@ -85,18 +85,18 @@ function apply(s,[x,y]){
   /* Un point relié à moins de 2 de mes points ne peut pas fermer de boucle : on évite le scan complet */
   if(canClose(s,x,y,t))for(const c of scan(s,t)){
     const vic=c.cells.filter(([a,b])=>s.o[b][a]&&s.o[b][a]!=t+1&&!s.d[b][a]);
-    if(vic.length){vic.forEach(([a,b])=>s.d[b][a]=true);s.sc[t]+=vic.length;g+=vic.length;s.loops.push({t,c});mark(s,c);s.cap.push(...vic)}
+    if(vic.length){vic.forEach(([a,b])=>s.d[b][a]=true);s.sc[t]+=vic.length;g+=vic.length;s.loops.push({t,c});mark(s,c,t);s.cap.push(...vic)}
   }
   if(g&&g>s.big[t])s.big[t]=g;
   if(!g)for(let u=0;u<K;u++){ /* piège : point posé dans une zone déjà fermée par un adversaire */
     if(u==t)continue;
     const c=scan(s,u,[x,y])[0]; /* early-exit : seule la composante du point nous intéresse */
-    if(c){s.d[y][x]=true;s.sc[u]++;if(!s.big[u])s.big[u]=1;s.loops.push({t:u,c});mark(s,c);s.cap=[[x,y]];s.capT=u;break}
+    if(c){s.d[y][x]=true;s.sc[u]++;if(!s.big[u])s.big[u]=1;s.loops.push({t:u,c});mark(s,c,u);s.cap=[[x,y]];s.capT=u;break}
   }
   s.bonus=g>0;s.combo=s.bonus?s.combo+1:0;if(!s.bonus)s.cur=(s.cur+1)%s.N; /* capture = le même joueur rejoue */
   return true;
 }
-const clone=s=>({...s,o:s.o.map(r=>r.slice()),d:s.d.map(r=>r.slice()),blk:s.blk.map(r=>r.slice()),sc:s.sc.slice(),big:s.big.slice(),loops:[],cap:[]});
+const clone=s=>({...s,o:s.o.map(r=>r.slice()),d:s.d.map(r=>r.slice()),blk:s.blk.map(r=>r.slice()),sc:s.sc.slice(),big:s.big.slice(),terr:(s.terr||[]).slice(),loops:[],cap:[]});
 const rng=a=>()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}; /* mulberry32 */
 
 /* ---- IA : évaluation + mémoire de motifs apprise des parties ---- */
@@ -182,7 +182,9 @@ function positionValue(s,root,weights,profile){
     if(t===root)frontier+=near*.035;
     else{frontier-=near*.035*(1+style.capture*.25);if(edge)frontier-=style.edge*.12}
   }
-  v+=(mine-theirs)*.025+frontier;
+  const territory=s.terr||[0,0],total=s.w*s.h;
+  v+=(mine-theirs)*.025+frontier+(territory[root]-territory[opp])*.12;
+  if(s.free<total*.2)v+=(mine-theirs)*.08; /* en fin de partie, valorise les points vivants qui restent jouables */
   return v;
 }
 /* Recherche minimax à profondeur limitée. Chaque nœud ne conserve que les meilleurs candidats
@@ -192,7 +194,7 @@ function stateHash(s){
   const put=v=>{h^=v;h=Math.imul(h,16777619)};
   put(s.cur);put(s.bonus?1:0);
   for(let y=0;y<s.h;y++)for(let x=0;x<s.w;x++){put(s.o[y][x]);put(s.d[y][x]?1:0);put(s.blk[y][x]?1:0)}
-  for(const v of s.sc)put(v);
+  for(const v of s.sc)put(v);for(const v of s.terr||[])put(v);
   return (h>>>0).toString(36);
 }
 function searchBeam(s,root,depth,beam,weights,book,level,profile,ctx){
