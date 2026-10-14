@@ -355,7 +355,7 @@ function explainAIMove(state,move){
   if(!E.apply(after,move))return 'Coup '+coord+' choisi.';
   const captured=after.sc[1]-state.sc[1];
   if(captured>0)return{type:'capture',details:'Coup '+coord+' : capture immédiate de '+captured+' point'+(captured>1?'s':''),confidence:.98};
-  const check=E.clone(state);check.cur=0;E.apply(check,move);
+  const check=E.clone(state);check.cur=0;E.rebuildHash(check);E.apply(check,move);
   const blocked=check.sc[0]-state.sc[0];
   if(blocked>0)return{type:'block',details:'Coup '+coord+' : bloque une capture adverse potentielle',confidence:.9};
   const allies=E.links(state,x,y,1),enemies=E.links(state,x,y,0);
@@ -876,7 +876,7 @@ const aiGoalText={
 function aiTrainingState(){
   const s=E.create(AI_TRAIN_W,AI_TRAIN_H,2,false);
   for(const p of aiTraining.stones)s.o[p.y][p.x]=p.owner;
-  s.n=aiTraining.stones.length;s.free=AI_TRAIN_W*AI_TRAIN_H-s.n;s.cur=0;
+  s.n=aiTraining.stones.length;s.free=AI_TRAIN_W*AI_TRAIN_H-s.n;s.cur=0;E.rebuildHash(s);
   return s;
 }
 function aiCoord(m){return String.fromCharCode(65+m[0])+(m[1]+1)}
