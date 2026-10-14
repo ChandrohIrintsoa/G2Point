@@ -1,0 +1,36 @@
+name: Benchmark IA G2Point
+
+on:
+  workflow_dispatch:
+    inputs:
+      games:
+        description: Nombre de parties par confrontation
+        required: false
+        default: "20"
+  schedule:
+    - cron: "20 2 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Mesurer les niveaux IA
+        env:
+          G2_BENCH_GAMES: ${{ github.event.inputs.games || '20' }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: npm run bench
+      - name: Publier les résultats
+        uses: actions/upload-artifact@v4
+        with:
+          name: g2point-ai-benchmark
+          path: bench/results.json
+          if-no-files-found: error
+          retention-days: 90
