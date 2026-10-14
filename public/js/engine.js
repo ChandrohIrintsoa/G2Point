@@ -136,12 +136,13 @@ function teach(book,s,x,y,t=0,quality=1){
   return true;
 }
 /* Rejoue une partie et enregistre, pour chaque coup, [fois joué, gain cumulé, victoires du joueur] */
-function learn(book,mv,w,h,n,tm,win){
+function learn(book,mv,w,h,n,tm,win,focusPlayer=null){
   const s=create(w,h,n,tm);
   for(const m of mv){
     const t=tmOf(tm,s.cur),k=patKey(s,m[0],m[1],t);
     const sk=strategyKey(s,m[0],m[1],t);
     if(!apply(s,m))continue;
+    if(focusPlayer!=null&&t!==focusPlayer)continue; /* en solo, seule l'IA apprend de ses propres décisions */
     const gain=s.capT==t?s.cap.length:-s.cap.length,won=win.includes(t);
     record(book,k,gain,won);record(book,sk,gain,won);
   }
