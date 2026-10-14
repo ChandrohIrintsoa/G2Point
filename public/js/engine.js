@@ -282,7 +282,7 @@ function aiMove(s,rnd=Math.random,P){
     for(let depth=1;depth<=maxDepth&&!ctx.aborted;depth++){
       const iteration=scored.slice(0,HARD_TOP).map(c=>{
         const a=clone(s);apply(a,c.m);
-        return{m:c.m,v:c.v+searchBeam(a,t,depth,SEARCH_BEAM,w,book,L,profile,ctx)*.22};
+        return{m:c.m,v:c.v+searchBeam(a,t,depth,SEARCH_BEAM,w,book,{...L,sbook:strategyBook},profile,ctx)*.22};
       });
       if(!ctx.aborted)for(const q of iteration){const target=scored.find(c=>c.m[0]===q.m[0]&&c.m[1]===q.m[1]);if(target)target.v=q.v}
       scored.sort((p,q)=>q.v-p.v);
