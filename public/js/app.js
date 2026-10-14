@@ -136,7 +136,7 @@ let aiPendingLog=[],aiLogTimer=0,aiLogGame='';
 function queueAIMoveLog(move){
   if(!ai||daily||mode!=='local'||!S)return;
   const player=E.tmOf(TM,S.cur),[x,y]=move;
-  if(!aiLogGame)aiLogGame=String(Date.now())+'-'+moves.length;
+  if(!aiLogGame||moves.length===0)aiLogGame=String(Date.now())+'-'+moves.length;
   const before=E.clone(S),key=E.patKey(before,x,y,player),strategy=E.strategyKey(before,x,y,player),after=E.clone(before);
   if(!E.apply(after,move))return;
   aiPendingLog.push({at:Date.now(),game:aiLogGame,player,key,strategy,gain:after.capT===player?after.cap.length:-after.cap.length,won:null});
@@ -188,6 +188,13 @@ function saveAI(a){
 }
 function aiPick(){aiP=daily?null:(()=>{const a=loadAI(),candidate=a.pop[a.active];return{w:candidate&&candidate.w||a.w,book:a.book,antiBook:a.antiBook,antiSBook:a.antiSBook,sbook:a.sbook,opponent:a.opponent,lvl}})()}
 
+function teachWorstAIMistake(a){
+  const state=E.create(W,H,N,TM);let worst=null;
+  for(const move of moves){const player=E.tmOf(TM,state.cur),before=E.clone(state);if(!E.apply(state,move))continue;
+    if(player===1){const gain=state.capT===player?state.cap.length:-state.cap.length;if(!worst||gain<worst.gain)worst={gain,state:before,move}}
+  }
+  if(worst)E.teach(a.book,worst.state,worst.move[0],worst.move[1],1,-2,a.sbook);
+}
 function evolveAI(a,won,playerElo=1200){
   a.pop=a.pop.length===8?a.pop:freshPopulation(a.w);
   const p=a.pop[a.active]||a.pop[0],score=won?1:0,elo=p.elo||1200,expected=1/(1+Math.pow(10,(playerElo-elo)/400));
@@ -204,6 +211,7 @@ function learnFromGame(win,r){
   if(!ai||daily||mode!=='local'||!aiP)return;
   flushAIMoveLog();const a=loadAI();a.st=a.st||{g:0,w:0};
   E.learn(a.book,moves,W,H,N,TM,win,1,a.sbook);
+  if(!win.includes(1))teachWorstAIMistake(a);
   if(win.includes(0))E.learn(a.antiBook,moves,W,H,N,TM,win,0,a.antiSBook);
   a.opponent=E.observeOpponent(a.opponent,moves,W,H,N,TM,0);for(const entry of a.log)if(entry.game===aiLogGame&&entry.won==null)entry.won=win.includes(entry.player);aiLogGame='';
   a.st.g++;if(win.includes(1))a.st.w++;
@@ -1164,7 +1172,10 @@ async function cloudPull(force){
   try{
     const res=await fetch(cloudUrl()+'/api/ai');if(!res.ok)return;
     const rm=await res.json(),a=loadAI();
-    if(rm&&rm.schema===2&&rm.book&&typeof rm.book==='object'){a.book={...a.book,...rm.book};a.games=Math.max(a.games,+rm.games||0);saveAI(a)} /* ignore les anciens motifs partagés, entraînés sur des coups non-IA */
+    if(rm&&rm.schema===2&&rm.book&&typeof rm.book==='object'){
+      for(const [key,value] of Object.entries(rm.book)){if(key.startsWith('S|'))a.sbook[key]=value;else a.book[key]=value}
+      a.games=Math.max(a.games,+rm.games||0);saveAI(a)
+    } /* les motifs stratégiques distants restent dans leur livre dédié */
   }catch(e){}
 }
 setTimeout(()=>{cloudFlush();cloudPull(true);cloudBootstrap()},2500);
