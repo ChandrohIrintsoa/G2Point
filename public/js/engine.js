@@ -219,7 +219,7 @@ function searchBeam(s,root,depth,beam,weights,book,level,profile,ctx){
     if(level.book&&key)h+=weights[5]*bookValue(key);
     ranked.push({next,h});
   }
-  ranked.sort((a,b)=>b.h-a.h);
+  ranked.sort((a,b)=>actor===root?b.h-a.h:a.h-b.h);
   const choices=ranked.slice(0,beam);
   let value=actor===root?-Infinity:Infinity;
   for(const c of choices){
