@@ -172,8 +172,9 @@ function positionValue(s,root,weights,profile){
   for(let y=0;y<s.h;y++)for(let x=0;x<s.w;x++){
     const p=s.o[y][x];if(!p||s.d[y][x])continue;
     const t=p-1;if(t===root)mine++;else theirs++;
-    const near=links(s,x,y,t);
-    if(t===root)frontier+=near*.035;else frontier-=near*.035*(1+style.capture*.25);
+    const near=links(s,x,y,t),edge=x<2||y<2||x>=s.w-2||y>=s.h-2;
+    if(t===root)frontier+=near*.035;
+    else{frontier-=near*.035*(1+style.capture*.25);if(edge)frontier-=style.edge*.12}
   }
   v+=(mine-theirs)*.025+frontier;
   return v;
