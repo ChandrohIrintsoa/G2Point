@@ -140,7 +140,7 @@ service cloud.firestore {
         && resource.data.get('nextBy', '') == ''
         && request.resource.data.get('next', '') is string
         && request.resource.data.get('nextBy', '') == request.auth.uid
-        && request.resource.data.get('next', '').matches('^[A-HJ-NP-Z2-9]{5}
+        && request.resource.data.get('next', '').matches('^[A-HJ-NP-Z2-9]{5}$');
     }
 
     // Suppression d'un salon d'attente : seul son créateur peut le retirer
