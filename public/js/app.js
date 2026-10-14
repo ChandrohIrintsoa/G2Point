@@ -213,7 +213,7 @@ function evolveAI(a,score,playerElo=1200){
 let idleTrainTimer=0,idleTrainMoves=0,idleTrainPause=0,idleTrainState=null,idleBatterySafe=true;
 const IDLE_SESSION_MOVES=20,IDLE_DAILY_MOVES=120,IDLE_STEP_MS=6000;
 if(navigator.getBattery)navigator.getBattery().then(b=>{
-  const refresh=()=>{idleBatterySafe=!!b.charging||b.level>=.25};
+  const refresh=()=>{idleBatterySafe=!!b.charging||b.level>=.25;if(idleBatterySafe&&document.hidden)startIdleTraining();else if(!idleBatterySafe)stopIdleTraining()};
   refresh();b.addEventListener('chargingchange',refresh);b.addEventListener('levelchange',refresh);
 }).catch(()=>{});
 function cancelIdleTimer(){clearTimeout(idleTrainTimer);if(typeof cancelIdleCallback==='function')cancelIdleCallback(idleTrainTimer);idleTrainTimer=0}
