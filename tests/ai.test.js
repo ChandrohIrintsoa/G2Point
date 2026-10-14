@@ -66,3 +66,36 @@ test('le livre conserve ses entrées après plusieurs parties rejouées',()=>{
   assert.ok(Object.values(book).every(entry=>entry[0]>0&&entry.length===4));
   assert.ok(Object.values(book).some(entry=>entry[0]>=25));
 });
+
+test('les cibles imaginaires couvrent un rayon de quatre cases',()=>{
+  const s=E.create(11,15,2,false);E.apply(s,[5,5]);
+  const targets=E.imaginaryTargets(s,0);
+  assert.ok(targets.some(([x,y])=>x===9&&y===5));
+  assert.ok(!targets.some(([x,y])=>Math.abs(x-5)>4||Math.abs(y-5)>4));
+});
+test('Dijkstra calcule une distance vers les cibles adverses',()=>{
+  const s=E.create(11,15,2,false);E.apply(s,[5,5]);E.apply(s,[0,0]);
+  const map=E.dijkstraTargets(s,0);
+  assert.ok(map.targets.length>0);
+  assert.ok(Number.isFinite(map.dist[5*s.w+5])===false);
+  assert.ok(Number.isFinite(map.dist[6*s.w+5]));
+});
+test('A* reconstruit un chemin légal vers une cible',()=>{
+  const s=E.create(11,15,2,false);E.apply(s,[5,5]);
+  const route=E.aStarRoute(s,[0,0],[4,4]);
+  assert.deepEqual(route[0],[0,0]);assert.deepEqual(route.at(-1),[4,4]);
+  assert.ok(route.length>1);
+});
+test('la projection adverse couvre dix décisions au maximum',()=>{
+  const s=E.create(11,15,2,false);E.apply(s,[5,5]);E.apply(s,[0,0]);
+  const forecast=E.forecastOpponent(s,0,10);
+  assert.equal(forecast.horizon,10);
+  assert.ok(forecast.lines.every(line=>line.length<=10));
+  assert.ok(forecast.projected.size>0);
+});
+test('la carte prédictive produit des risques finis',()=>{
+  const s=E.create(11,15,2,false);E.apply(s,[5,5]);E.apply(s,[0,0]);
+  const map=E.predictiveMap(s,0,10);
+  assert.equal(map.risk.length,s.w*s.h);
+  assert.ok(Array.from(map.risk).every(Number.isFinite));
+});
