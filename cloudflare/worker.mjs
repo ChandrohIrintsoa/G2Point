@@ -84,6 +84,23 @@ async function handleProgress(req,env,h){
   }
   return json({error:'méthode refusée'},405,h);
 }
+/* Mémoire apprise d'une IA (motifs) : on ne garde que les entrées bien formées, bornées en taille et en valeur.
+   Les clés sont de courts motifs (« .m.o#… », « S|M|P|D|N|C|B ») : pas de « _ », donc pas de « __proto__ ». */
+const BOOK_KEY_RE=/^[A-Za-z0-9.#|]{1,40}$/,BOOK_ENTRIES_MAX=3000,BOOK_COUNT_MAX=1e7,BOOK_GAIN_MAX=1e9;
+export function sanitizeBook(raw){
+  if(!safeObject(raw))return null;
+  const keys=Object.keys(raw);if(keys.length>BOOK_ENTRIES_MAX)return null;
+  const out={};
+  for(const k of keys){
+    const e=raw[k];
+    if(!BOOK_KEY_RE.test(k)||!Array.isArray(e)||e.length!==3||!e.every(Number.isFinite))continue;
+    const [n,g,w]=e;
+    if(n<1||n>BOOK_COUNT_MAX||Math.abs(g)>BOOK_GAIN_MAX||w<0||w>n)continue;
+    out[k]=[n,g,w];
+  }
+  return out;
+}
+const PLAYER_AI_MAX_BODY=192*1024; /* 1 500 motifs ≈ 70 Ko : large marge */
 async function handlePlayerAi(req,env,h){
   const db=env.DB;
   if(req.method==='GET'){
@@ -91,16 +108,36 @@ async function handlePlayerAi(req,env,h){
     if(!validPlayerId(id))return json({error:'identifiant invalide'},400,h);
     const row=await db.prepare('SELECT weights_json,games,wins,updated_at FROM player_ai WHERE player_id=?').bind(id).first();
     let weights=null;try{weights=row?JSON.parse(row.weights_json):null}catch{}
-    return json({training:row?{weights,games:row.games,wins:row.wins,updatedAt:row.updated_at}:null},200,h);
+    const training=row?{weights,games:row.games,wins:row.wins,updatedAt:row.updated_at}:null;
+    if(training){ /* table absente (schéma pas encore migré) : on répond quand même, sans mémoire */
+      try{
+        const b=await db.prepare('SELECT book_json,simulations FROM player_ai_book WHERE player_id=?').bind(id).first();
+        if(b){let book=null;try{book=JSON.parse(b.book_json)}catch{}training.book=safeObject(book)?book:null;training.simulations=b.simulations}
+      }catch{}
+    }
+    return json({training},200,h);
   }
   if(req.method==='PUT'){
-    const p=await readJson(req,4096);if(p.error)return json({error:'requête invalide'},p.error,h);
+    const p=await readJson(req,PLAYER_AI_MAX_BODY);if(p.error)return json({error:'requête invalide'},p.error,h);
     const b=p.value||{},weights=b.weights;
     if(!validPlayerId(b.playerId)||!Array.isArray(weights)||weights.length!==6||weights.some(v=>!Number.isFinite(v)||v<0||v>100))return json({error:'paramètres IA invalides'},422,h);
     const games=Math.max(0,Math.min(10000000,Math.floor(Number(b.games)||0)));
     const wins=Math.max(0,Math.min(games,Math.floor(Number(b.wins)||0)));
     await db.prepare('INSERT INTO player_ai(player_id,weights_json,games,wins,updated_at) VALUES(?,?,?,?,unixepoch()) ON CONFLICT(player_id) DO UPDATE SET weights_json=excluded.weights_json,games=MAX(player_ai.games,excluded.games),wins=MAX(player_ai.wins,excluded.wins),updated_at=unixepoch()').bind(b.playerId,JSON.stringify(weights),games,wins).run();
-    return json({ok:true},200,h);
+    if(b.book===undefined)return json({ok:true},200,h); /* ancien client : poids seulement */
+    const incoming=sanitizeBook(b.book);
+    if(!incoming)return json({error:'mémoire IA invalide'},422,h);
+    const simulations=Math.max(0,Math.min(10000000,Math.floor(Number(b.simulations)||0)));
+    try{
+      /* lecture-fusion-écriture : la fusion est idempotente, un envoi simultané perdu est rattrapé à la synchro suivante */
+      const row=await db.prepare('SELECT book_json FROM player_ai_book WHERE player_id=?').bind(b.playerId).first();
+      let stored={};try{stored=row?sanitizeBook(JSON.parse(row.book_json))||{}:{}}catch{}
+      const book=E.mergeBook(stored,incoming);
+      await db.prepare('INSERT INTO player_ai_book(player_id,book_json,simulations,updated_at) VALUES(?,?,?,unixepoch()) ON CONFLICT(player_id) DO UPDATE SET book_json=excluded.book_json,simulations=MAX(player_ai_book.simulations,excluded.simulations),updated_at=unixepoch()').bind(b.playerId,JSON.stringify(book),simulations).run();
+      return json({ok:true,book,simulations},200,h);
+    }catch{
+      return json({ok:true,book:null},200,h); /* poids enregistrés ; table « player_ai_book » absente : lancer npm run cf:schema */
+    }
   }
   return json({error:'méthode refusée'},405,h);
 }

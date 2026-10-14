@@ -146,6 +146,20 @@ function learn(book,mv,w,h,n,tm,win){
     record(book,k,gain,won);record(book,sk,gain,won);
   }
 }
+/* Fusion de deux mémoires de motifs (appareil ↔ cloud). Pour chaque clé on garde l'entrée la plus observée (plus grand
+   nombre de coups) : l'opération est idempotente (la rejouer ne gonfle rien) et commutative, donc plusieurs appareils
+   convergent vers la même mémoire sans double comptage. La mémoire est ensuite bornée comme dans saveAI. */
+const BOOK_MAX=1500,BOOK_KEEP=1200;
+function mergeBook(a,b,max=BOOK_MAX,keep=BOOK_KEEP){
+  const out={};
+  for(const src of [a,b])if(src&&typeof src==='object')for(const k of Object.keys(src)){
+    const e=src[k];if(!Array.isArray(e)||e.length<3)continue;
+    const cur=out[k];if(!cur||e[0]>cur[0]||(e[0]===cur[0]&&e[1]>cur[1]))out[k]=[e[0],e[1],e[2]];
+  }
+  const ks=Object.keys(out);
+  if(ks.length<=max)return out;
+  ks.sort((p,q)=>out[q][0]-out[p][0]);const nb={};ks.slice(0,keep).forEach(k=>nb[k]=out[k]);return nb;
+}
 /* Cases candidates : vides, hors territoire confiné, proches d'un point existant */
 function cands(s){
   const W=s.w,H=s.h,out=[];let any=false;
@@ -215,6 +229,6 @@ function genPuzzle(rnd=Math.random,intel=0,P,maxMs=1500){
   }
   return null;
 }
-const api={genPuzzle,puzzleSpec,create,scan,apply,legal,links,tmOf,grid,clone,rng,aiMove,learn,teach,patKey,strategyKey,mutate,DEFAULT_W,LEVELS};
+const api={genPuzzle,puzzleSpec,create,scan,apply,legal,links,tmOf,grid,clone,rng,aiMove,learn,teach,patKey,strategyKey,mutate,mergeBook,BOOK_MAX,BOOK_KEEP,DEFAULT_W,LEVELS};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.G2Engine=api;
 })(typeof window!=='undefined'?window:globalThis);

@@ -45,7 +45,9 @@ const trajectory=[];
 function renderObserver(){
   const ai=window.G2Engine,stats=$('observerStats');if(!stats)return;
   const a=(()=>{try{return JSON.parse(localStorage.getItem('g2p.ai')||'{}')}catch(e){return {}}})();
-  stats.textContent='Parties observées : '+(a.games||0)+' · Simulations : '+(a.simulations||0)+' · Motifs : '+Object.keys(a.book||{}).length;
+  const sy=window.G2AiSync||{state:'none'},hhmm=sy.at?new Date(sy.at).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'';
+  const cloud={ok:'synchronisée à '+hhmm,pending:'en attente du premier envoi',error:'injoignable, nouvel essai plus tard','old-server':'serveur à mettre à jour : mémoire non enregistrée',none:'non configuré'}[sy.state]||'—';
+  stats.textContent='Parties observées : '+(a.games||0)+' · Simulations : '+(a.simulations||0)+' · Motifs : '+Object.keys(a.book||{}).length+' · Cloud : '+cloud;
   const log=$('observerLog');log.replaceChildren();
   trajectory.slice(-24).reverse().forEach(t=>{const row=document.createElement('div');row.textContent=t;log.append(row)});
 }
@@ -116,7 +118,8 @@ if(E&&typeof E.aiMove==='function'&&!E.__observing){
   E.__observing=true;
 }
 /* Simulation IA en direct, sur demande : IA contre IA sur un vrai terrain (mêmes couleurs, territoires et points capturés
-   que dans une partie). Accessible depuis le menu caché (☰ Menu) et depuis l'observatoire. Lecture seule : ne modifie pas la mémoire de l'IA. */
+   que dans une partie). Accessible depuis le menu caché (☰ Menu) et depuis l'observatoire.
+   Une partie terminée entraîne l'IA (niveau Normal ou Difficile) et la mémoire est synchronisée dans le cloud par app.js. */
 const SIZES={'11x15':[11,15],'17x23':[17,23],'23x31':[23,31]},SPEEDS={slow:900,normal:420,fast:120},TAU=Math.PI*2,LIVE_NAMES=['Rouge','Cyan'];
 const demo=document.createElement('section');demo.id='aiLiveDemo';demo.className='ai-observer ai-live-demo';demo.hidden=true;
 demo.setAttribute('role','dialog');demo.setAttribute('aria-label','Simulation IA en direct');
@@ -129,20 +132,24 @@ demo.innerHTML='<header><div><small>SIMULATION EN DIRECT</small><h2>Terrain d’
  +'<p id="demoThink" class="live-think" aria-live="off"></p>'
  +'<div class="demo-actions"><button type="button" class="pri" id="demoRun">Lancer la simulation</button><button type="button" id="demoStep">Un coup</button><button type="button" id="demoReset">Réinitialiser</button></div>';
 document.body.append(demo);
-const live={s:null,moves:0,running:false,timer:0,busy:false,last:null,flash:null,flashTeam:0,over:false};
+const live={s:null,moves:0,running:false,timer:0,busy:false,last:null,flash:null,flashTeam:0,over:false,played:[],params:null};
 const readAI=()=>{try{const a=JSON.parse(localStorage.getItem('g2p.ai')||'null');return a&&a.w&&a.book?a:{}}catch(e){return {}}};
-const aiParams=()=>{const a=readAI();return{w:a.w,book:a.book,lvl:+$('demoLevel').value}}; /* mémoire apprise de l'IA, en lecture seule */
+const aiParams=()=>live.params||(live.params=(a=>({w:a.w,book:a.book,lvl:+$('demoLevel').value}))(readAI())); /* mémoire de l'IA, lue une fois par partie */
 function liveReset(){
   if(!E)return;
   const [w,h]=SIZES[$('demoSize').value]||SIZES['11x15'];
-  live.s=E.create(w,h,2,false);live.moves=0;live.last=null;live.flash=null;live.over=false;
+  live.s=E.create(w,h,2,false);live.moves=0;live.last=null;live.flash=null;live.over=false;live.played=[];live.params=null;
   $('demoThink').textContent='';liveStatus('Terrain '+w+' × '+h+' prêt. Rouge commence.');liveDraw();
 }
 function liveStatus(text){$('demoStatus').textContent=text}
 function liveScore(){const s=live.s;return LIVE_NAMES[0]+' '+s.sc[0]+' — '+LIVE_NAMES[1]+' '+s.sc[1]}
 function liveFinish(){
-  live.over=true;liveStop();const s=live.s,d=s.sc[0]-s.sc[1];
-  liveStatus('Terminé après '+live.moves+' coups · '+liveScore()+' · '+(d===0?'égalité':LIVE_NAMES[d>0?0:1]+' gagne')+'.');
+  live.over=true;liveStop();const s=live.s,d=s.sc[0]-s.sc[1],level=+$('demoLevel').value;
+  let learned=false;
+  try{learned=typeof learnFromLiveSimulation==='function'&&learnFromLiveSimulation(live.played,s.w,s.h,s.sc,level)}catch(e){console.warn('Apprentissage impossible',e)}
+  liveStatus('Terminé après '+live.moves+' coups · '+liveScore()+' · '+(d===0?'égalité':LIVE_NAMES[d>0?0:1]+' gagne')+'. '
+    +(learned?'L’IA a appris de cette partie ; sa mémoire est envoyée au cloud.':level<=0?'Niveau Facile : pas d’apprentissage.':'Partie trop courte pour apprendre.'));
+  if(learned)renderObserver();
   $('demoRun').textContent='Relancer';liveDraw();
 }
 function liveStep(){
@@ -154,7 +161,7 @@ function liveStep(){
   try{
     const mover=s.cur,m=E.aiMove(s,E.rng((Date.now()+live.moves*7919)|0),aiParams());
     if(!m||!E.apply(s,m)){liveFinish();return}
-    live.moves++;live.last=m;live.flash=s.cap.slice();live.flashTeam=s.capT;
+    live.moves++;live.played.push([m[0],m[1]]);live.last=m;live.flash=s.cap.slice();live.flashTeam=s.capT;
     const think=trajectory.length?trajectory[trajectory.length-1].replace(/^\S+ — /,''):'';
     $('demoThink').textContent=think;
     liveStatus('Coup '+live.moves+' · '+liveScore()+(s.bonus?' · capture, '+LIVE_NAMES[mover]+' rejoue':' · au tour de '+LIVE_NAMES[s.cur]));

@@ -39,3 +39,9 @@ CREATE TABLE IF NOT EXISTS player_ai (
   wins INTEGER NOT NULL DEFAULT 0,
   updated_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
+CREATE TABLE IF NOT EXISTS player_ai_book (
+  player_id TEXT PRIMARY KEY,
+  book_json TEXT NOT NULL,
+  simulations INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+);

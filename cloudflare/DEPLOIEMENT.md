@@ -60,6 +60,17 @@ firebase deploy --only hosting
 
 L'origine autorisée dans `wrangler.toml` correspond au projet Firebase `g2ppoint`. Si le domaine Hosting est différent, mettre à jour `ALLOWED_ORIGINS`, puis redéployer le Worker.
 
+## Mise à jour : mémoire de l'IA synchronisée par joueur
+
+Chaque IA (une par identifiant joueur, donc une par navigateur) envoie maintenant sa mémoire apprise (motifs des parties, simulations autonomes et simulation en direct) au cloud, qui la conserve séparément pour chaque joueur et la fusionne sans double comptage. Elle est rechargée au démarrage pour le même identifiant ; la retrouver sur un autre appareil demandera de lier l'identifiant à un compte (voir « Limite importante »). Pour l'activer sur un déploiement existant, dans cet ordre :
+
+```bash
+npm run cf:schema   # crée la table player_ai_book (sans toucher aux données existantes)
+npm run cf:deploy   # redéploie le Worker
+```
+
+Tant que ces deux commandes n'ont pas été lancées, le jeu continue de fonctionner, mais l'observatoire IA affiche « Cloud : serveur à mettre à jour : mémoire non enregistrée ».
+
 ## Données conservées dans D1
 
 - Archives de parties validées par le moteur du jeu

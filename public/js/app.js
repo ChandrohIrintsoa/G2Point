@@ -170,6 +170,15 @@ function runBackgroundAISimulation(){
   finally{autoSimBusy=false}
 }
 setInterval(runBackgroundAISimulation,60000);
+/* Simulation en direct (enhancements.js) : une partie IA contre IA terminée entraîne l'IA comme une simulation autonome.
+   saveAI() enregistre la mémoire puis l'envoie au cloud (cloudPersistAI). Pas d'apprentissage au niveau Facile, comme pour les vraies parties. */
+function learnFromLiveSimulation(played,w,h,sc,level){
+  if(!played||played.length<4||!(level>0))return false;
+  const a=loadAI(),best=Math.max(...sc),winners=sc.map((v,i)=>v===best?i:-1).filter(i=>i>=0);
+  E.learn(a.book,played,w,h,2,false,winners);
+  a.games=(a.games||0)+1;a.simulations=(a.simulations||0)+1;saveAI(a);
+  return true;
+}
 
 /* Libellés, résultat, historique, partage */
 const label=i=>ai&&mode=='local'&&i==1?'IA':NAMES[i];
@@ -1035,11 +1044,28 @@ async function cloudSyncProgress(P=loadProg()){
   if(!cloudUrl())return;
   try{await cloudRequest('/api/progress','PUT',{playerId:devId(),progress:P})}catch(e){}
 }
+/* État de la synchro de l'IA, affiché dans l'observatoire : none (cloud non configuré) · pending · ok · old-server · error */
+window.G2AiSync={state:cloudUrl()?'pending':'none',at:0};
+let lastAiSent='';
+/* Fusionne une mémoire reçue du cloud dans celle de l'appareil (écriture directe : pas de nouvel envoi, donc pas de boucle) */
+function adoptRemoteAI(book,simulations){
+  const a=loadAI();
+  if(book&&typeof book==='object')a.book=E.mergeBook(a.book,book);
+  a.simulations=Math.max(a.simulations||0,+simulations||0);
+  jset('g2p.ai',a);
+}
 function cloudPersistAI(A){
   if(!cloudUrl())return;
   clearTimeout(cloudAiTimer);
   cloudAiTimer=setTimeout(async()=>{
-    try{await cloudRequest('/api/ai/player','PUT',{playerId:devId(),weights:A.c||A.w,games:A.games||0,wins:A.st&&A.st.w||0})}catch(e){}
+    const body={playerId:devId(),weights:A.c||A.w,games:A.games||0,wins:A.st&&A.st.w||0,simulations:A.simulations||0,book:A.book||{}};
+    const sig=JSON.stringify(body);if(sig===lastAiSent&&G2AiSync.state==='ok')return; /* rien de nouveau depuis le dernier envoi réussi */
+    try{
+      const r=await cloudRequest('/api/ai/player','PUT',body);
+      if(r&&r.book){adoptRemoteAI(r.book,r.simulations);lastAiSent=sig;G2AiSync.state='ok'}
+      else G2AiSync.state='old-server'; /* Worker pas à jour ou table absente : la mémoire n'est pas enregistrée */
+      G2AiSync.at=Date.now();
+    }catch(e){G2AiSync.state='error';G2AiSync.at=Date.now()}
   },1200);
 }
 async function cloudBootstrap(){
@@ -1062,7 +1088,9 @@ async function cloudBootstrap(){
       const A=loadAI(),T=aiRemote.training;
       if(Array.isArray(T.weights)&&T.weights.length===6&&(+T.games||0)>A.games){
         A.w=T.weights;A.games=+T.games||0;A.st.w=+T.wins||0;jset('g2p.ai',A);
-      }else cloudPersistAI(A);
+      }
+      adoptRemoteAI(T.book,T.simulations); /* recharge la mémoire enregistrée pour cet identifiant joueur (même navigateur) */
+      cloudPersistAI(loadAI());
     }else cloudPersistAI(loadAI());
     renderProg();
   }catch(e){}
