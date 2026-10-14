@@ -98,7 +98,7 @@ body.board-fs #chatToasts{position:fixed;z-index:10030;top:calc(12px + env(safe-
   #menu .online-card{grid-column:1/-1}
   #game:not(.board-fullscreen){
     display:grid;grid-template-columns:minmax(0,1fr) minmax(285px,340px);
-    grid-template-areas:"scores scores" "dock dock" "board side" "controls side" "status side" "insight side" "notice side" "actions actions";
+    grid-template-areas:"scores scores" "dock dock" "board side" "controls side" "status side" "notice side" "actions actions";
     align-items:start;gap:8px 18px;max-width:1280px;
   }
   #bar{grid-area:scores;grid-template-columns:repeat(auto-fit,minmax(0,1fr))}
@@ -107,7 +107,7 @@ body.board-fs #chatToasts{position:fixed;z-index:10030;top:calc(12px + env(safe-
   #cvw canvas{max-width:100%}
   .view-controls{grid-area:controls;min-width:0}
   #msg{grid-area:status;margin-top:4px}
-  #aiInsight{grid-area:insight}
+  #aiInsight{grid-area:side}
   #gnote{grid-area:notice}
   #onlinePanel{grid-area:side;align-self:start;position:sticky;top:12px;margin:0;min-width:0}
   #onlinePanel[hidden]{display:none!important}
