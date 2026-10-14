@@ -33,6 +33,14 @@ test('IA : bloque une capture adverse',()=>{
   play(s,[[5,4],[5,5],[4,5],[0,0],[6,5],[0,2]]); // Rouge menace (5,6) ; c'est à Rouge de jouer ? non : Noir
   assert.equal(s.cur,0);play(s,[[0,4]]);assert.deepEqual(E.aiMove(s,()=>0),[5,6]);
 });
+test('IA : choix reproductible avec une graine fixe sur une position identique',()=>{
+  const s=E.create(11,15,2,false);
+  play(s,[[5,5],[5,4],[1,1],[4,5],[2,2],[6,5],[3,3]]);
+  const a=E.aiMove(E.clone(s),E.rng(424242),{lvl:2});
+  const b=E.aiMove(E.clone(s),E.rng(424242),{lvl:2});
+  assert.deepEqual(a,b);
+  assert.ok(a&&E.legal(s,a[0],a[1]));
+});
 test('apprentissage solo : mémorise uniquement les coups de l’IA',()=>{
   const book={},moves=[[1,1],[2,2],[3,3],[4,4]],s=E.create(11,15,2,false);
   const humanKey=E.patKey(s,1,1,0);E.apply(s,moves[0]);
