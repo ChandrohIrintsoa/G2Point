@@ -228,8 +228,9 @@ function idleTrainingStep(){
   idleTrainMoves++;
   if(!move||state.free<=0){
     a.simulations=(a.simulations||0)+1;
-    if(state.sc[0]>state.sc[1])E.learn(a.book,idleTrainState.moves,11,15,2,false,[0],0,a.sbook);
-    saveAI(a);idleTrainState=null;
+    const score=state.sc[0]>state.sc[1]?1:state.sc[0]===state.sc[1]?.5:0;
+    if(score===1)E.learn(a.book,idleTrainState.moves,11,15,2,false,[0],0,a.sbook);
+    evolveAI(a,score,1000);saveAI(a);idleTrainState=null;
   }
   if(idleTrainMoves>=40){idleTrainPause=Date.now()+10*60*1000;stopIdleTraining();if(document.hidden)idleTrainTimer=setTimeout(startIdleTraining,10*60*1000);return}
   idleTrainTimer=setTimeout(idleTrainingStep,3000);
