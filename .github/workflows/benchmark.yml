@@ -6,7 +6,7 @@ on:
       games:
         description: Nombre de parties par confrontation
         required: false
-        default: "20"
+        default: "10"
   schedule:
     - cron: "20 2 * * 1"
 
@@ -24,7 +24,7 @@ jobs:
           node-version: 22
       - name: Mesurer les niveaux IA
         env:
-          G2_BENCH_GAMES: ${{ github.event.inputs.games || '20' }}
+          G2_BENCH_GAMES: ${{ github.event.inputs.games || '10' }}
           GITHUB_SHA: ${{ github.sha }}
         run: npm run bench
       - name: Publier les résultats
