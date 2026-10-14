@@ -180,7 +180,7 @@ function auditAIGame(a,win){
 function evolveAI(a,won){
   a.pop=a.pop.length===8?a.pop:freshPopulation(a.w);
   const p=a.pop[a.active]||a.pop[0];p.played=(p.played||0)+1;p.score=(p.score||0)+(won?1:0);p.elo=Math.round((p.elo||1200)+24*((won?1:0)-.5));
-  a.games=(a.games||0)+1;a.active=(a.active+1)%a.pop.length;
+  a.games=(a.games||0)+1;a.active=(a.active+1)%a.pop.length;a.c=a.pop[a.active].w.slice();
   if(a.games>0&&a.games%10===0){
     const ranked=a.pop.slice().sort((x,y)=>(y.score/(y.played||1))-(x.score/(x.played||1))||y.elo-x.elo);
     const next=ranked.slice(0,2).map(x=>({...x,w:x.w.slice()}));
