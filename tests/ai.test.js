@@ -100,6 +100,17 @@ test('la carte prédictive produit des risques finis',()=>{
   assert.ok(Array.from(map.risk).every(Number.isFinite));
 });
 
+test('MCTS UCT échantillonne des réponses et conserve un coup légal',()=>{
+  const s=E.create(11,15,2,false);E.apply(s,[5,5]);E.apply(s,[0,0]);
+  const candidates=E.aiMove(s,E.rng(91),{lvl:2,predictive:false});
+  const pool=E.cands?E.cands(s).list.slice(0,6):[[4,4],[5,4],[4,5],[6,6]];
+  const result=E.mctsRefine(s,s.cur,pool,E.DEFAULT_W,null,E.rng(92),performance.now()+80,60);
+  assert.ok(result.move&&E.legal(s,result.move[0],result.move[1]));
+  assert.ok(result.visits>0);
+  assert.ok(result.arms.every(a=>Number.isFinite(a.mean)));
+  assert.ok(candidates&&E.legal(s,candidates[0],candidates[1]));
+});
+
 test('le niveau Champion est disponible avec recherche renforcée',()=>{
   assert.equal(E.LEVELS[3].name,'Champion');
   assert.equal(E.LEVELS[3].champion,true);
