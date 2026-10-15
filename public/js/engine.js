@@ -260,6 +260,45 @@ function searchBeam(s,root,depth,beam,weights,book,level,profile,ctx){
   ctx.table.set(hash,value);
   return value;
 }
+/* Petit MCTS UCT : complète le minimax par des trajectoires adverses échantillonnées.
+   Les simulations sont bornées dans le temps et n'altèrent jamais l'état source. */
+function mctsRefine(s,root,candidates,weights,profile,rnd=Math.random,deadline=nowMs()+160,iterations=180){
+ const arms=candidates.slice(0,8).map(c=>({move:c.m||c,visits:0,total:0,mean:0}));
+ if(!arms.length)return{move:null,visits:0};
+ const rollout=(first)=>{
+  const state=clone(s);if(!apply(state,first))return positionValue(state,root,weights,profile);
+  for(let ply=0;ply<4&&state.free>0&&nowMs()<deadline;ply++){
+   const actor=tmOf(state.tm,state.cur),{list}=cands(state);if(!list.length)break;
+   const ranked=[];
+   for(const [x,y] of list){
+    const child=clone(state);if(!apply(child,[x,y]))continue;
+    const gain=child.sc[actor]-state.sc[actor],loss=child.sc[1-actor]-state.sc[1-actor];
+    const local=links(state,x,y,actor)-links(state,x,y,1-actor)*.25;
+    ranked.push({move:[x,y],score:(gain-loss)*8+local});
+   }
+   if(!ranked.length)break;
+   ranked.sort((a,b)=>b.score-a.score);
+   const sample=ranked.slice(0,Math.min(4,ranked.length));
+   const chosen=sample[Math.min(sample.length-1,Math.floor(Math.pow(Math.max(0,Math.min(.999999,rnd())),1.8)*sample.length))];
+   if(!apply(state,chosen.move))break;
+  }
+  return positionValue(state,root,weights,profile);
+ };
+ let visits=0;
+ for(;visits<iterations&&nowMs()<deadline;visits++){
+  let arm;
+  if(visits<arms.length)arm=arms[visits];
+  else{
+   const log=Math.log(visits+1);let best=-Infinity;
+   for(const a of arms){const u=a.mean+1.35*Math.sqrt(log/(a.visits||1));if(u>best){best=u;arm=a}}
+  }
+  const value=rollout(arm.move);
+  if(!Number.isFinite(value))continue;
+  arm.visits++;arm.total+=value;arm.mean=arm.total/arm.visits;
+ }
+ arms.sort((a,b)=>b.mean-a.mean||b.visits-a.visits);
+ return{move:arms[0].move,visits,arms:arms.map(a=>({move:a.move,visits:a.visits,mean:a.mean}))};
+}
 const nowMs=()=>typeof performance!=='undefined'&&performance.now?performance.now():Date.now();
 /* Cases candidates : vides, hors territoire confiné, proches d'un point existant */
 function cands(s){
@@ -374,6 +413,10 @@ function aiMove(s,rnd=Math.random,P){
       scored.sort((p,q)=>q.v-p.v);
     }
     scored.sort((p,q)=>q.v-p.v);
+    if(L.champion){
+      const mc=mctsRefine(s,t,scored.slice(0,8),w,profile,rnd,nowMs()+180,180);
+      if(mc.move&&legal(s,mc.move[0],mc.move[1]))return mc.move;
+    }
   }
   return scored[0].m;
 }
@@ -402,6 +445,6 @@ function genPuzzle(rnd=Math.random,intel=0,P,maxMs=1500){
   }
   return null;
 }
-const api={genPuzzle,puzzleSpec,create,scan,apply,legal,links,tmOf,grid,clone,rng,aiMove,learn,teach,observeOpponent,opponentStyle,positionValue,bookValue,patKey,strategyKey,mutate,imaginaryTargets,dijkstraTargets,aStarRoute,forecastOpponent,predictiveMap,stateHash,rebuildHash:s=>{s._hash=computeHash(s);return s._hash.toString(36)},DEFAULT_W,LEVELS};
+const api={genPuzzle,puzzleSpec,create,scan,apply,legal,links,tmOf,grid,clone,rng,aiMove,learn,teach,observeOpponent,opponentStyle,positionValue,bookValue,patKey,strategyKey,mutate,imaginaryTargets,dijkstraTargets,aStarRoute,forecastOpponent,predictiveMap,mctsRefine,stateHash,rebuildHash:s=>{s._hash=computeHash(s);return s._hash.toString(36)},DEFAULT_W,LEVELS};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.G2Engine=api;
 })(typeof window!=='undefined'?window:globalThis);
