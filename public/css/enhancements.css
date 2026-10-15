@@ -127,3 +127,11 @@ body.board-fs #chatToasts{position:fixed;z-index:10030;top:calc(12px + env(safe-
 .theme-swatches span{display:block;width:13px;height:13px;border:1px solid rgba(255,255,255,.42);border-radius:50%;box-shadow:0 0 9px currentColor}
 .acts button{text-transform:none;letter-spacing:.015em}
 @media(min-width:960px){#menu .menu-card{padding:18px}#menu .online-card .stack{grid-template-columns:repeat(2,minmax(0,1fr))}#menu .online-card .row,#menu .online-card .connection-pill,#menu .online-card .setup-note,#menu .online-card #hint{grid-column:1/-1}}
+
+
+/* Correctifs mobile : dégager la barre système et éviter deux accès au menu. */
+@media(max-width:600px){
+  #game:not(.board-fullscreen){padding-top:max(12px,env(safe-area-inset-top,0px))}
+  #game:not(.board-fullscreen) #bar{margin-top:8px}
+  #game:not(.board-fullscreen) .acts #back{display:none}
+}
