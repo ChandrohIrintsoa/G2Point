@@ -134,6 +134,7 @@ service cloud.firestore {
         && (resource.data.ended == true || resource.data.moves.size() >= resource.data.w * resource.data.h)
         && resource.data.get('next', '') == ''
         && resource.data.get('nextBy', '') == ''
+        && request.resource.data.keys().hasAll(['next', 'nextBy'])
         && request.resource.data.next is string
         && request.resource.data.nextBy == request.auth.uid
         && request.resource.data.next.matches('^[A-HJ-NP-Z2-9]{5}$');
@@ -144,13 +145,21 @@ service cloud.firestore {
     function validGameUpdate() {
       let changed = request.resource.data.diff(resource.data).affectedKeys();
       return signedIn() && (
-        (changed.hasOnly(['s1', 'name1']) && validSeatClaim('s1', 'name1', 2)) ||
-        (changed.hasOnly(['s2', 'name2']) && validSeatClaim('s2', 'name2', 3)) ||
-        (changed.hasOnly(['s3', 'name3']) && validSeatClaim('s3', 'name3', 4)) ||
-        (changed.hasOnly(['moves', 'cur', 'lastAt']) && validMoveAppend()) ||
-        (changed.hasOnly(['ended']) && validEnd()) ||
-        (changed.hasOnly(['ended', 'forfeit']) && (validForfeit() || validResign())) ||
-        (changed.hasOnly(['next', 'nextBy']) && validRematch())
+        changed.hasAny(['moves'])
+          ? changed.hasOnly(['moves', 'cur', 'lastAt']) && validMoveAppend()
+          : changed.hasAny(['s1', 'name1'])
+            ? changed.hasOnly(['s1', 'name1']) && validSeatClaim('s1', 'name1', 2)
+            : changed.hasAny(['s2', 'name2'])
+              ? changed.hasOnly(['s2', 'name2']) && validSeatClaim('s2', 'name2', 3)
+              : changed.hasAny(['s3', 'name3'])
+                ? changed.hasOnly(['s3', 'name3']) && validSeatClaim('s3', 'name3', 4)
+                : changed.hasAny(['forfeit'])
+                  ? changed.hasOnly(['ended', 'forfeit']) && (validForfeit() || validResign())
+                  : changed.hasAny(['ended'])
+                    ? changed.hasOnly(['ended']) && validEnd()
+                    : changed.hasAny(['next', 'nextBy'])
+                      ? changed.hasOnly(['next', 'nextBy']) && validRematch()
+                      : false
       );
     }
 
