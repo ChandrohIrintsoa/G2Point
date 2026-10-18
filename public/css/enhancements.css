@@ -135,3 +135,27 @@ body.board-fs #chatToasts{position:fixed;z-index:10030;top:calc(12px + env(safe-
   #game:not(.board-fullscreen) #bar{margin-top:8px}
   #game:not(.board-fullscreen) .acts #back{display:none}
 }
+
+/* ===== Plein écran : le terrain recouvre tout l'écran ; scores, message et bouton passent en surimpression discrète,
+   dans les marges libres, sans capter les clics (pointer-events:none) pour ne jamais gêner la pose d'un point. ===== */
+#boardFullscreen{top:8px;right:8px;min-width:30px;min-height:30px;padding:4px 8px;border-radius:8px;font-size:14px;line-height:1;opacity:.5;letter-spacing:0}
+#boardFullscreen:hover,#boardFullscreen:focus-visible{opacity:1}
+#game.board-fullscreen{display:block!important;position:fixed;inset:0;z-index:58;width:100vw;height:100dvh;max-width:none;margin:0;padding:0!important;overflow:hidden;background:var(--paper)}
+#game.board-fullscreen #cvw{position:fixed;inset:0;z-index:1;display:flex;width:100vw;height:100dvh;max-height:none!important;margin:0;padding:0;border:0;border-radius:0;box-shadow:none;background:var(--paper);overflow:hidden}
+#game.board-fullscreen #cvw.zoomed{overflow:auto}
+#game.board-fullscreen #cvw canvas{margin:auto;flex:0 0 auto}
+#game.board-fullscreen #boardFullscreen{position:fixed;z-index:12;top:max(8px,env(safe-area-inset-top));right:max(8px,env(safe-area-inset-right))}
+#game.board-fullscreen .view-controls,#game.board-fullscreen #gnote,#game.board-fullscreen .acts,#game.board-fullscreen #gameDock,#game.board-fullscreen #onlinePanel{display:none!important}
+#game.board-fullscreen #bar{position:fixed;z-index:6;top:max(8px,env(safe-area-inset-top));left:max(8px,env(safe-area-inset-left));right:52px;display:flex!important;flex-wrap:wrap;gap:6px;margin:0;padding:0;border:0;background:none;backdrop-filter:none;grid-template-columns:none!important;pointer-events:none;position:fixed}
+#game.board-fullscreen .chip{flex:0 0 auto;padding:3px 9px;border-radius:9px;background:rgba(7,6,15,.62);box-shadow:none;backdrop-filter:blur(6px);transform:none;animation:none}
+#game.board-fullscreen .chip b{font-size:18px}
+#game.board-fullscreen .chip span{font-size:9px}
+#game.board-fullscreen #msg{position:fixed;z-index:6;left:50%;bottom:max(8px,env(safe-area-inset-bottom));transform:translateX(-50%);margin:0;padding:4px 12px;max-width:calc(100vw - 24px);border-radius:999px;background:rgba(7,6,15,.62);font-size:12px;text-align:center;pointer-events:none}
+#game.board-fullscreen #aiInsight{position:fixed;z-index:6;left:50%;bottom:calc(max(8px,env(safe-area-inset-bottom)) + 34px);transform:translateX(-50%);width:min(560px,calc(100vw - 24px));margin:0;padding:6px 10px;background:rgba(7,6,15,.72);font-size:11px;pointer-events:none}
+#game.board-fullscreen #aiInsight[hidden]{display:none}
+@media(min-aspect-ratio:3/2){ /* écran large : scores et messages dans la colonne libre à gauche du terrain */
+  #game.board-fullscreen #bar{right:auto;flex-direction:column;align-items:flex-start;max-width:200px}
+  #game.board-fullscreen #msg{left:max(8px,env(safe-area-inset-left));transform:none;width:200px;max-width:200px;border-radius:12px;text-align:left}
+  #game.board-fullscreen #aiInsight{left:max(8px,env(safe-area-inset-left));transform:none;width:200px;bottom:calc(max(8px,env(safe-area-inset-bottom)) + 70px)}
+}
+.ai-insight[data-state="thinking"]{opacity:.65;font-style:italic}

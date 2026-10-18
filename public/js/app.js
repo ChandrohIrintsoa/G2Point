@@ -91,7 +91,7 @@ function paint(){
   const c=$('cv'),wrap=$('cvw');
   const fullBoard=$('game').classList.contains('board-fullscreen');
   if(!$('game').hidden)document.querySelector('main').style.maxWidth=fullBoard?'none':innerWidth>=960?'min(1280px, calc(100vw - 48px))':Math.max(320,Math.min(900,(innerHeight-250)*(W+1)/(H+1)))+'px';
-  const bw=fullBoard?Math.min(innerWidth-24,innerHeight*.52*(W+1)/(H+1)):wrap.clientWidth;if(!bw)return; /* plein écran : 60 % de la hauteur, le reste garde scores, messages et boutons visibles */
+  const bw=fullBoard?Math.min(innerWidth,innerHeight*(W+1)/(H+1)):wrap.clientWidth;if(!bw)return; /* plein écran : le terrain remplit tout l'écran (carrés conservés) ; scores et messages passent en surimpression */
   wrap.classList.toggle('zoomed',zoom>1);
   const w=bw*zoom;
   cs=w/(W+1);const h=cs*(H+1),r=window.devicePixelRatio||1,pw=Math.round(w*r),ph=Math.round(h*r),now=performance.now();
@@ -364,6 +364,70 @@ function explainAIMove(state,move){
   if(allies===1)return{type:'develop',details:'Coup '+coord+' : prolonge une chaîne et prépare de nouvelles connexions',confidence:.62};
   return{type:'develop',details:'Coup '+coord+' : développe une nouvelle zone de jeu',confidence:.48};
 }
+/* Commentaire IA en direct : recalculé à CHAQUE coup (le vôtre comme celui de l'IA) à partir de l'état réel du plateau :
+   captures possibles, menaces adverses, et prévision sur 3 coups par recherche (rien n'est pré-écrit). */
+let aiJust=null,insightSeq=0,insightTimer=0,insightSc=null;
+const cellName=c=>String.fromCharCode(65+c[0])+(c[1]+1),pts=n=>n+' point'+(n>1?'s':'');
+function liveCells(s){
+  const out=[];
+  for(let y=0;y<s.h;y++)for(let x=0;x<s.w;x++){
+    if(!E.legal(s,x,y))continue;
+    let near=false;
+    for(let j=-2;j<=2&&!near;j++)for(let i=-2;i<=2;i++){const a=x+i,b=y+j;if(a>=0&&b>=0&&a<s.w&&b<s.h&&s.o[b][a]){near=true;break}}
+    if(near)out.push([x,y]);
+  }
+  return out;
+}
+function gainAt(s,cell,player){ /* points que `player` capturerait en jouant `cell` maintenant */
+  const c=E.clone(s);c.cur=player;E.rebuildHash(c);
+  const t=tmOf(player),b=c.sc[t];
+  return E.apply(c,cell)?c.sc[t]-b:0;
+}
+function liveAnalysis(s,deadline){
+  const cur=s.cur,t=tmOf(cur),cells=liveCells(s),others=[];
+  for(let q=0;q<K();q++)if(tmOf(q)!==t&&!others.some(o=>tmOf(o)===tmOf(q)))others.push(q);
+  const a={mine:{g:0,cell:null},threat:{g:0,cell:null,by:-1},line:[],delta:0,partial:false};
+  for(const cell of cells){
+    if(Date.now()>deadline){a.partial=true;break}
+    const g=gainAt(s,cell,cur);if(g>a.mine.g)a.mine={g,cell};
+    for(const q of others){const h=gainAt(s,cell,q);if(h>a.threat.g)a.threat={g:h,cell,by:q}}
+  }
+  /* prévision : 3 demi-coups joués par le moteur (niveau rapide) depuis la position réelle */
+  const sim=E.clone(s),P={w:E.DEFAULT_W,lvl:0},r=E.rng(s.n*7919+13);
+  for(let k=0;k<3&&Date.now()<deadline+250;k++){const m=E.aiMove(sim,r,P);if(!m||!E.apply(sim,m))break;a.line.push(m)}
+  const o=others.length?tmOf(others[0]):1-t;
+  a.delta=(sim.sc[t]-s.sc[t])-(sim.sc[o]-s.sc[o]);
+  return a;
+}
+function insightText(a,s,ev){
+  const who=label(s.cur),seg=[];
+  if(ev)seg.push(ev);
+  if(a.mine.g>0)seg.push(who+' peut capturer '+pts(a.mine.g)+' en '+cellName(a.mine.cell));
+  if(a.threat.g>0)seg.push('menace de '+label(a.threat.by)+' : '+pts(a.threat.g)+' en '+cellName(a.threat.cell));
+  if(!a.mine.g&&!a.threat.g)seg.push(a.partial?'analyse partielle : aucune capture immédiate repérée':'position calme : aucune capture immédiate, ni pour '+who+' ni contre');
+  if(a.line.length>1)seg.push('prévision '+a.line.length+' coups : '+a.line.map(cellName).join(' → ')+' ('+(a.delta>0?'+':'')+a.delta+' pour '+who+')');
+  return seg.join(' · ');
+}
+function liveInsight(fresh){
+  const el=$('aiInsight');
+  if(!el)return;
+  if(!ai||mode!=='local'||puz>=0||!S||over()){clearTimeout(insightTimer);insightSeq++;el.hidden=true;el.textContent='';insightSc=null;return}
+  if(!fresh&&!el.hidden)return; /* même position : on garde l'analyse déjà faite */
+  const seq=++insightSeq,s=E.clone(S),n=moves.length,jus=aiJust;aiJust=null;
+  let ev='';
+  if(insightSc){const dg=s.sc.map((v,i)=>v-(insightSc[i]||0));const i=dg.findIndex(v=>v>0);if(i>=0)ev='capture de '+pts(dg[i])+' par '+label(i)}
+  if(!ev&&jus)ev='IA : '+jus.why;
+  if(!ev&&n){const l=moves[n-1];ev='dernier coup '+cellName(l)}
+  insightSc=s.sc.slice();
+  el.hidden=false;el.dataset.state='thinking';el.textContent='Analyse de la position en cours…';
+  clearTimeout(insightTimer);
+  insightTimer=setTimeout(()=>{
+    if(seq!==insightSeq)return;
+    const a=liveAnalysis(s,Date.now()+160);
+    if(seq!==insightSeq)return; /* la partie a avancé pendant le calcul */
+    el.textContent=insightText(a,s,ev);el.dataset.state='ready';el.dataset.reason=a.threat.g>0?'threat':a.mine.g>0?'chance':'calm';
+  },30);
+}
 function aiTurn(){
   clearTimeout(aiTimer);
   const insight=$('aiInsight');
@@ -375,7 +439,7 @@ function aiTurn(){
     const move=E.aiMove(S,E.rng((daily?seedOf(daily):Date.now())+moves.length),aiP);
     if(!move)return;
     queueAIMoveLog(move);
-    const why=explainAIMove(S,move);insight.textContent=why.details+' · confiance '+Math.round(why.confidence*100)+' %';insight.dataset.reason=why.type;insight.hidden=false;
+    const why=explainAIMove(S,move);aiJust={cell:cellName(move),why:why.details,type:why.type};
     moves=[...moves,move];upd();saveLocal();aiTurn();
   },AI_DELAY_MS);
 }
@@ -448,6 +512,7 @@ function upd(){
   }
   wasOver=o;
   prevCombo=S.combo;
+  liveInsight(fresh);
   if(o&&mode=='online'&&me>=0&&gameData&&!gameData.ended&&endSent!==code){endSent=code;ref.update({ended:true}).catch(()=>{})} /* plateau plein (territoires compris) : clôture pour permettre la revanche */
   draw();
 }
@@ -795,7 +860,7 @@ async function setBoardFullscreen(on){
   updateFullscreenLabel();draw();
 }
 const toggleBoardFullscreen=()=>setBoardFullscreen(!isBoardFullscreen());
-function updateFullscreenLabel(){const active=isBoardFullscreen();$('boardFullscreen').textContent=active?'⤢ Quitter le plein écran':'⛶ Plein écran';$('dockFullscreen').textContent=active?'⤢ Quitter le plein écran':'⛶ Terrain plein écran'}
+function updateFullscreenLabel(){const active=isBoardFullscreen(),b=$('boardFullscreen');b.textContent=active?'✕':'⛶';b.setAttribute('aria-label',active?'Quitter le plein écran':'Mettre le terrain en plein écran');b.title=active?'Quitter le plein écran':'Plein écran';$('dockFullscreen').textContent=active?'⤢ Quitter le plein écran':'⛶ Terrain plein écran'}
 $('boardFullscreen').onclick=toggleBoardFullscreen;
 document.addEventListener('fullscreenchange',()=>{
   if(!document.fullscreenElement&&isBoardFullscreen()){$('game').classList.remove('board-fullscreen');document.body.classList.remove('board-fs')} /* sortie par Échap / retour système */
