@@ -3,7 +3,8 @@
    - GET  /api/ai      : endpoint conservé pour compatibilité ; apprentissage partagé désactivé
                         tant que les archives ne sont pas attribuées à des identités vérifiées.
    Le même moteur que le jeu est utilisé (public/js/engine.js). */
-import E from '../public/js/engine.js';
+import '../public/js/engine.js';
+const E=globalThis.G2Engine;
 
 const SIZES=new Set(['11x15','17x23','23x31']),MAX_BODY=96*1024,MIN_MOVES=6,MAX_PER_HOUR_IP=40,MAX_PER_HOUR_PLAYER=20,
   MODES=new Set(['local','ai','daily','online']);
