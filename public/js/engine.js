@@ -41,7 +41,7 @@ const HARD_TOP=5,HARD_REPLY=.8,SEARCH_BEAM=6,SEARCH_DEPTH=4,TRANSPOSE_MAX=10000;
 const LEVELS=[{name:'Facile',noise:4,block:.3,book:false,deep:false},{name:'Normal',noise:.3,block:1,book:true,deep:false},{name:'Difficile',noise:.05,block:1,book:true,deep:true},{name:'Champion',noise:0,block:1.35,book:true,deep:true,champion:true}];
 function create(w,h,n,tm){const K=tm?2:n,s={n:0,w,h,N:n,tm:!!tm,o:grid(w,h,0),d:grid(w,h,false),sc:Array(K).fill(0),big:Array(K).fill(0),combo:0,loops:[],cur:0,bonus:false,cap:[],capT:0,blk:grid(w,h,false),terr:Array(K).fill(0),free:w*h};s._hash=computeHash(s);return s}
 /* Case jouable : dans le terrain, vide, et hors territoire confiné (zone fermée où une capture a eu lieu) */
-const legal=(s,x,y)=>x>=0&&y>=0&&x<s.w&&y<s.h&&!s.o[y][x]&&!s.blk[y][x];
+const legal=(s,x,y)=>Number.isInteger(x)&&Number.isInteger(y)&&x>=0&&y>=0&&x<s.w&&y<s.h&&!s.o[y][x]&&!s.blk[y][x];
 /* Territoire : une zone fermée qui a capturé devient inaccessible pour tous. */
 function mark(s,c,owner=null){for(const [a,b] of c.cells)if(!s.blk[b][a]){const oo=s.o[b][a],od=s.d[b][a],ob=s.blk[b][a];s.blk[b][a]=true;if(!s.o[b][a])s.free--;if(owner!=null&&s.terr)s.terr[owner]++;updateCellHash(s,a,b,oo,od,ob)}}
 /* Zones fermées par l'équipe t : composantes de cases non atteignables depuis le bord.
@@ -111,7 +111,9 @@ function canClose(s,x,y,t){
   return false;
 }
 /* Joue un coup. Retourne false (sans rien modifier) si le coup est illégal, y compris dans un territoire confiné. */
-function apply(s,[x,y]){
+function apply(s,move){
+  if(!Array.isArray(move)||move.length!==2)return false;
+  const [x,y]=move;
   if(!legal(s,x,y))return false;
   ensureHash(s);
   const before={cur:s.cur,bonus:s.bonus,combo:s.combo,sc:s.sc.slice(),terr:(s.terr||[]).slice()};
