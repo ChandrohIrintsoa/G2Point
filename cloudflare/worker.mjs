@@ -1,13 +1,14 @@
 /* API G2Point (Cloudflare Worker + D1).
-   - POST /api/archive : enregistre une partie terminée APRÈS l'avoir rejouée avec le moteur (aucune confiance au client),
-                         puis fait apprendre l'IA partagée à partir de ses coups.
-   - GET  /api/ai      : renvoie la mémoire partagée de l'IA (motifs + nombre de parties apprises).
-   Le même moteur que le jeu est utilisé (public/js/engine.js), donc règles et zones confinées identiques. */
+   - POST /api/archive : rejoue les coups avec le moteur avant d'archiver la partie.
+   - GET  /api/ai      : endpoint conservé pour compatibilité ; apprentissage partagé désactivé
+                        tant que les archives ne sont pas attribuées à des identités vérifiées.
+   Le même moteur que le jeu est utilisé (public/js/engine.js). */
 import E from '../public/js/engine.js';
 
 const SIZES=new Set(['11x15','17x23','23x31']),MAX_BODY=96*1024,MIN_MOVES=6,MAX_PER_HOUR_IP=40,MAX_PER_HOUR_PLAYER=20,
-  BOOK_MAX=1500,BOOK_KEEP=1200,MODES=new Set(['local','ai','daily','online']),RESULTS=new Set(['win','loss','draw','na']);
-const ID_RE=/^[A-Za-z0-9_-]{6,64}$/;
+  MODES=new Set(['local','ai','daily','online']);
+const ID_RE=/^[A-Za-z0-9_-]{6,64}$/; // Identifiant de joueur généré côté client.
+const GAME_ID_RE=/^[A-Za-z0-9_-]{5,64}$/; // Les salons Firestore utilisent 5 caractères.
 
 const cors=(req,env)=>{
   const o=req.headers.get('Origin')||'',ok=(env.ALLOWED_ORIGINS||'').split(',').map(s=>s.trim()).filter(Boolean);
@@ -19,23 +20,24 @@ async function sha(txt){const b=await crypto.subtle.digest('SHA-256',new TextEnc
 
 /* Rejoue la partie : renvoie null si un coup est illégal (hors terrain, case occupée, territoire confiné). */
 export function validate(b){
-  if(!b||typeof b!=='object')return null;
-  const {gameId,playerId,w,h,n,tm,mode,result,moves}=b;
-  if(!ID_RE.test(gameId||'')||!ID_RE.test(playerId||''))return null;
-  if(!SIZES.has(w+'x'+h)||![2,3,4].includes(n)||(tm&&n!==4))return null;
-  if(!MODES.has(mode)||!RESULTS.has(result))return null;
+  if(!b||typeof b!=='object'||Array.isArray(b))return null;
+  const {gameId,playerId,w,h,n,tm,mode,moves}=b;
+  if(typeof gameId!=='string'||!GAME_ID_RE.test(gameId)||typeof playerId!=='string'||!ID_RE.test(playerId))return null;
+  if(!Number.isInteger(w)||!Number.isInteger(h)||!SIZES.has(w+'x'+h))return null;
+  if(!Number.isInteger(n)||![2,3,4].includes(n)||typeof tm!=='boolean'||(tm&&n!==4))return null;
+  if(typeof mode!=='string'||!MODES.has(mode))return null;
   if(!Array.isArray(moves)||moves.length<MIN_MOVES||moves.length>w*h)return null;
-  const s=E.create(w,h,n,!!tm),mv=[];
+  const s=E.create(w,h,n,tm),mv=[];
   for(const m of moves){
     if(!Array.isArray(m)||m.length!==2||!Number.isInteger(m[0])||!Number.isInteger(m[1]))return null;
-    if(!E.apply(s,m))return null;mv.push([m[0],m[1]]);
+    if(!E.apply(s,m))return null;
+    mv.push([m[0],m[1]]);
   }
   const mx=Math.max(...s.sc),win=s.sc.map((v,i)=>v===mx?i:-1).filter(i=>i>=0);
-  return{gameId,playerId,w,h,n,tm:!!tm,mode,result,mv,win:mx>0?win:[],sc:s.sc};
+  // Le champ result fourni par le navigateur n'est jamais considéré comme une preuve.
+  const result=mx===0?'draw':win.includes(0)?(win.length>1?'draw':'win'):'loss';
+  return{gameId,playerId,w,h,n,tm,mode,result,mv,win:mx>0?win:[],sc:s.sc};
 }
-
-const getStat=async(db,k)=>{const r=await db.prepare('SELECT statistic_value v FROM game_statistics WHERE statistic_key=?').bind(k).first();return r?r.v:null};
-const setStat=(db,k,v)=>db.prepare('INSERT INTO game_statistics(statistic_key,statistic_value,updated_at) VALUES(?,?,unixepoch()) ON CONFLICT(statistic_key) DO UPDATE SET statistic_value=excluded.statistic_value,updated_at=unixepoch()').bind(k,v);
 
 const validPlayerId=v=>typeof v==='string'&&ID_RE.test(v);
 const readJson=async(req,max=32768)=>{
@@ -105,56 +107,37 @@ async function handlePlayerAi(req,env,h){
   return json({error:'méthode refusée'},405,h);
 }
 
-/* Le cloud n'accepte que les leçons confirmées et horodatées. */
-export function filterSharedBook(book,now=Date.now()){
-  if(!book||typeof book!=='object'||Array.isArray(book))return{};
-  const out={};
-  for(const [key,v] of Object.entries(book)){
-    if(typeof key!=='string'||key.length>180||!Array.isArray(v)||v.length<4)continue;
-    const count=Number(v[0]),gain=Number(v[1]),wins=Number(v[2]),lastSeen=Number(v[3]);
-    if(!Number.isSafeInteger(count)||count<3||count>10000000||!Number.isFinite(gain)||!Number.isFinite(wins)||wins<0||wins>count||!Number.isFinite(lastSeen)||lastSeen<=0||lastSeen>now+86400000)continue;
-    out[key]=[count,gain,wins,lastSeen];
-  }
-  return out;
-}
-function trim(book){
-  const ks=Object.keys(book);if(ks.length<=BOOK_MAX)return book;
-  ks.sort((a,b)=>book[b][0]-book[a][0]);const nb={};ks.slice(0,BOOK_KEEP).forEach(k=>nb[k]=book[k]);return nb;
-}
-
 export async function handleArchive(req,env,h){
-  const raw=await req.text();if(raw.length>MAX_BODY)return json({error:'trop gros'},413,h);
-  let body;try{body=JSON.parse(raw)}catch(e){return json({error:'json invalide'},400,h)}
-  const g=validate(body);if(!g)return json({error:'partie invalide'},422,h);
-  const db=env.DB,ip=await sha((env.IP_SALT||'')+(req.headers.get('CF-Connecting-IP')||'?')),since="unixepoch()-3600";
+  const raw=await req.text();
+  if(raw.length>MAX_BODY)return json({error:'trop gros'},413,h);
+  let body;
+  try{body=JSON.parse(raw)}catch{return json({error:'json invalide'},400,h)}
+  const g=validate(body);
+  if(!g)return json({error:'partie invalide'},422,h);
+  const db=env.DB;
+  if(!db)return json({error:'stockage indisponible'},503,h);
+  const ip=await sha((env.IP_SALT||'')+(req.headers.get('CF-Connecting-IP')||'?')),since="unixepoch()-3600";
   const c1=await db.prepare('SELECT COUNT(*) c FROM game_archives WHERE ip_hash=? AND created_at>'+since).bind(ip).first();
   const c2=await db.prepare('SELECT COUNT(*) c FROM game_archives WHERE player_id=? AND created_at>'+since).bind(g.playerId).first();
-  if(c1.c>=MAX_PER_HOUR_IP||c2.c>=MAX_PER_HOUR_PLAYER)return json({error:'trop de parties, réessayez plus tard'},429,h);
+  if((c1?.c||0)>=MAX_PER_HOUR_IP||(c2?.c||0)>=MAX_PER_HOUR_PLAYER)return json({error:'trop de parties, réessayez plus tard'},429,h);
   const ins=await db.prepare('INSERT OR IGNORE INTO game_archives(game_id,player_id,result,moves_json,width,height,players,team,mode,ip_hash) VALUES(?,?,?,?,?,?,?,?,?,?)')
     .bind(g.gameId,g.playerId,g.result,JSON.stringify(g.mv),g.w,g.h,g.n,g.tm?1:0,g.mode,ip).run();
-  if(!ins.meta||!ins.meta.changes)return json({ok:true,duplicate:true},200,h); /* déjà reçue : on n'apprend pas deux fois */
-  /* La mémoire v2 n'apprend que des coups joués par l'IA dans les parties Solo.
-     Les anciennes archives (parties humaines et auto-simulations) ne doivent plus polluer sa stratégie. */
-  let games=+await getStat(db,'ai_games_v2')||0;
-  if(g.mode==='ai'){
-    let book={};try{book=JSON.parse(await getStat(db,'ai_book_v2')||'{}')}catch(e){}
-    E.learn(book,g.mv,g.w,g.h,g.n,g.tm,g.win,1);book=trim(book);
-    games++;
-    await db.batch([setStat(db,'ai_book_v2',JSON.stringify(book)),setStat(db,'ai_games_v2',String(games))]);
-  }
-  return json({ok:true,games},200,h);
+  if(!ins.meta||!ins.meta.changes)return json({ok:true,duplicate:true,sharedLearning:false},200,h);
+  // Le mode envoyé par le navigateur n'est pas fiable : les archives ne nourrissent plus le livre IA global.
+  return json({ok:true,archived:true,sharedLearning:false},200,h);
 }
 
-export async function handleAi(env,h){
-  const db=env.DB;let book={};try{book=JSON.parse(await getStat(db,'ai_book_v2')||'{}')}catch(e){}
-  return json({schema:2,book:filterSharedBook(book),games:+await getStat(db,'ai_games_v2')||0},200,{...h,'Cache-Control':'public, max-age=60'});
+export async function handleAi(_env,h){
+  // Mémoire partagée désactivée tant que les archives ne sont pas authentifiées.
+  return json({schema:3,book:{},games:0,learning:false},200,{...h,'Cache-Control':'public, max-age=60'});
 }
 
 export default{
   async fetch(req,env){
-    const url=new URL(req.url),h=cors(req,env);
-    if(req.method==='OPTIONS')return new Response(null,{status:h?204:403,headers:h||{}});
-    if(!h)return json({error:'origine non autorisée'},403,{});
+    const url=new URL(req.url),allowed=cors(req,env),requestId=req.headers.get('cf-ray')||crypto.randomUUID();
+    const h={...(allowed||{}),'X-Request-ID':requestId};
+    if(req.method==='OPTIONS')return new Response(null,{status:allowed?204:403,headers:h});
+    if(!allowed)return json({error:'origine non autorisée',requestId},403,h);
     try{
       if(url.pathname==='/api/archive'&&req.method==='POST')return await handleArchive(req,env,h);
       if(url.pathname==='/api/ai'&&req.method==='GET')return await handleAi(env,h);
@@ -162,6 +145,9 @@ export default{
       if(url.pathname==='/api/progress')return await handleProgress(req,env,h);
       if(url.pathname==='/api/ai/player')return await handlePlayerAi(req,env,h);
       return json({error:'introuvable'},404,h);
-    }catch(e){return json({error:'erreur serveur'},500,h)}
+    }catch(e){
+      console.error('[G2Point Worker]',{requestId,method:req.method,path:url.pathname,error:e&&e.message||String(e),stack:e&&e.stack||null});
+      return json({error:'erreur serveur',requestId},500,h);
+    }
   }
 };
