@@ -448,5 +448,5 @@ function genPuzzle(rnd=Math.random,intel=0,P,maxMs=1500){
   return null;
 }
 const api={genPuzzle,puzzleSpec,create,scan,apply,legal,links,tmOf,grid,clone,rng,aiMove,learn,teach,observeOpponent,opponentStyle,positionValue,bookValue,patKey,strategyKey,mutate,imaginaryTargets,dijkstraTargets,aStarRoute,forecastOpponent,predictiveMap,mctsRefine,stateHash,rebuildHash:s=>{s._hash=computeHash(s);return s._hash.toString(36)},DEFAULT_W,LEVELS};
-if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.G2Engine=api;
+root.G2Engine=api;if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:globalThis);
