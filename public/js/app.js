@@ -20,7 +20,7 @@ function sync(){
   if(S&&(S.n>moves.length||S.w!=W||S.h!=H||S.N!=N||S.tm!=TM))S=null;
   if(!S){S=E.create(W,H,N,TM);reset=true}
   const before=S.n;
-  while(S.n<moves.length){E.apply(S,moves[S.n]);S.n++}
+  while(S.n<moves.length){const k=S.n;E.apply(S,moves[k]);if(S.n===k)S.n++} /* apply() incrémente S.n ; un coup illégal est sauté */
   const added=S.n-before;if(reset||added)dirty=true;
   return added>0&&(before>0||added===1); /* vrai = un nouveau coup à signaler (son, effet) */
 }
