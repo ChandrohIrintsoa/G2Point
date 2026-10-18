@@ -1159,10 +1159,14 @@ async function cloudFlush(){
     let q=jget('g2p.outbox',[]);
     while(q.length){
       const res=await fetch(cloudUrl()+'/api/archive',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(q[0])});
-      if(res.status===429||res.status>=500)break;     /* réessayer plus tard */
-      q=q.slice(1);jset('g2p.outbox',q);               /* envoyée, déjà connue ou définitivement refusée */
+      if(res.status===429||res.status>=500)break; // Erreur temporaire : conserver la file.
+      if(!res.ok){
+        const detail=await res.text().catch(()=> '');
+        console.warn('[G2Point] Archive refusée définitivement',res.status,detail.slice(0,300));
+      }
+      q=q.slice(1);jset('g2p.outbox',q);
     }
-  }catch(e){/* hors-ligne : la file est conservée */}finally{flushing=false}
+  }catch(e){console.warn('[G2Point] Envoi des archives interrompu; la file est conservée.',e)}finally{flushing=false}
 }
 /* Récupère la mémoire de l'IA partagée (toutes les parties de tous les appareils) et la fusionne avec la mémoire locale */
 let cloudAiTimer=0;
@@ -1205,32 +1209,28 @@ async function cloudBootstrap(){
       if(!localStorage.getItem('g2p.prog'))jset('g2p.prog',pg.progress);
       else await cloudSyncProgress();
     }else await cloudSyncProgress();
-    if(aiRemote&&aiRemote.training){
-      const A=loadAI(),T=aiRemote.training;
-      /* Récupère éventuellement les poids, jamais les anciens compteurs : ils incluaient des parties non-IA. */
-      if(Array.isArray(T.weights)&&T.weights.length===6&&T.weights.every(Number.isFinite)){
-        A.w=T.weights;A.c=T.weights.slice();if(A.pop&&A.pop.length)A.pop[0].w=T.weights.slice();A.active=0;jset('g2p.ai',A);
-      }
-      cloudPersistAI(A);
-    }else cloudPersistAI(loadAI());
+    const A=loadAI(),T=aiRemote&&aiRemote.training,rawAI=jget('g2p.ai',null);
+    const hasCloudWeights=T&&Array.isArray(T.weights)&&T.weights.length===6&&T.weights.every(Number.isFinite);
+    // Les poids distants ne sont appliqués qu'à une première installation sans état local.
+    // Ne jamais écraser un chromosome existant : le serveur ne connaît pas A.active ni la population.
+    if(!rawAI&&hasCloudWeights){
+      A.w=T.weights.slice();A.c=T.weights.slice();A.pop=freshPopulation(A.w);A.active=0;jset('g2p.ai',A);
+    }
+    cloudPersistAI(A);
     renderProg();
-  }catch(e){}
+  }catch(e){console.warn('[G2Point] Synchronisation initiale impossible.',e)}
 }
 async function cloudPull(force){
-  if(!cloudUrl()||(!force&&Date.now()-lastPull<CLOUD_PULL_MS))return;lastPull=Date.now();
+  if(!cloudUrl()||(!force&&Date.now()-lastPull<CLOUD_PULL_MS))return;
+  lastPull=Date.now();
   try{
-    const res=await fetch(cloudUrl()+'/api/ai');if(!res.ok)return;
-    const rm=await res.json(),a=loadAI();
-    if(rm&&rm.schema===2&&rm.book&&typeof rm.book==='object'){
-      for(const [key,value] of Object.entries(rm.book)){
-        if(!Array.isArray(value)||value.length<4)continue;
-        const count=Number(value[0]),gain=Number(value[1]),wins=Number(value[2]),lastSeen=Number(value[3]);
-        if(!Number.isSafeInteger(count)||count<3||count>10000000||!Number.isFinite(gain)||!Number.isFinite(wins)||wins<0||wins>count||!Number.isFinite(lastSeen)||lastSeen<=0||lastSeen>Date.now()+86400000)continue;
-        if(key.startsWith('S|'))a.sbook[key]=[count,gain,wins,lastSeen];else a.book[key]=[count,gain,wins,lastSeen];
-      }
-      a.games=Math.max(a.games,+rm.games||0);saveAI(a)
-    } /* seuls les motifs distants suffisamment observés et horodatés sont fusionnés */
-  }catch(e){}
+    const res=await fetch(cloudUrl()+'/api/ai');
+    if(!res.ok){console.warn('[G2Point] Lecture de la mémoire IA distante refusée:',res.status);return}
+    const remote=await res.json();
+    // Le schéma 2 provenait d'archives anonymes et pouvait être empoisonné.
+    // On ne fusionne plus de mémoire distante dans l'apprentissage personnel.
+    if(remote&&remote.schema===2)console.warn('[G2Point] Ancienne mémoire IA partagée ignorée (source non vérifiée).');
+  }catch(e){console.warn('[G2Point] Lecture de la mémoire IA distante impossible.',e)}
 }
 setTimeout(()=>{cloudFlush();cloudPull(true);cloudBootstrap()},2500);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden){stopIdleTraining();cloudFlush();cloudPull()}else startIdleTraining()});
