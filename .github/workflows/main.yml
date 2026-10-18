@@ -1,12 +1,11 @@
-
 name: Deploy G2Point to Firebase
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
     paths:
       - "public/**"
+      - "firebase/**"
       - "firebase.json"
       - ".firebaserc"
       - ".github/workflows/main.yml"
@@ -15,18 +14,44 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: firebase-production
+  cancel-in-progress: false
+
 jobs:
-  deploy:
+  test:
+    name: Tests (moteur + règles Firestore)
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+      - name: Installer Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Installer Java pour l'émulateur Firestore
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Installer les dépendances
+        run: npm install --no-audit --no-fund
+      - name: Exécuter tous les tests dans l'émulateur Firestore
+        run: npx --yes firebase-tools emulators:exec --only firestore --project g2p-test "npm test"
 
-      - name: Deploy to Firebase Hosting
+  deploy:
+    name: Déployer Firebase Hosting
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Déployer sur Firebase Hosting
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: "${{ secrets.GITHUB_TOKEN }}"
           firebaseServiceAccount: "${{ secrets.FIREBASE_SERVICE_ACCOUNT_G2POINT }}"
           projectId: g2ppoint
           channelId: live
-          
