@@ -159,3 +159,10 @@ body.board-fs #chatToasts{position:fixed;z-index:10030;top:calc(12px + env(safe-
   #game.board-fullscreen #aiInsight{left:max(8px,env(safe-area-inset-left));transform:none;width:200px;bottom:calc(max(8px,env(safe-area-inset-bottom)) + 70px)}
 }
 .ai-insight[data-state="thinking"]{opacity:.65;font-style:italic}
+
+/* Panneau d'entraînement continu (Observatoire IA) */
+.train-box{margin:12px 0;padding:12px;border:1px solid var(--bd);border-radius:10px;background:#05d9e80d}
+.train-box h3{margin:0 0 10px;font:700 12px var(--disp);letter-spacing:.12em;text-transform:uppercase;color:var(--neon)}
+.train-box .live-opts{grid-template-columns:repeat(3,minmax(0,1fr))}
+.train-table{display:grid;gap:3px;font:12px ui-monospace,monospace;color:var(--c2)}
+@media(max-width:480px){.train-box .live-opts{grid-template-columns:1fr}}

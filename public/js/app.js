@@ -208,54 +208,91 @@ function evolveAI(a,score,playerElo=1200){
     a.pop=next;a.active=0;a.w=a.pop[0].w.slice();a.c=a.w.slice();
   }
 }
-/* Auto-entraînement discret : uniquement onglet caché + réseau, 1 coup/3 s, 40 coups puis pause 10 min.
-   La simulation est isolée de la partie visible et s'arrête dès le retour de l'utilisateur. */
-let idleTrainTimer=0,idleTrainMoves=0,idleTrainPause=0,idleTrainState=null,idleBatterySafe=true;
-const IDLE_SESSION_MOVES=20,IDLE_DAILY_MOVES=120,IDLE_STEP_MS=6000;
+/* Entraînement IA continu, dans un Web Worker (l'interface ne gèle jamais).
+   Des IA de niveaux différents (+ l'IA apprenante, qui évolue) s'affrontent en boucle, parties COMPLÈTES.
+   Dès qu'un même participant enchaîne 100 victoires d'affilée : pause de X minutes puis relance automatique.
+   Modes : « auto » (onglet caché), « on » (en continu), « off ». L'état survit au rechargement de la page. */
+const TRAIN_KEY='g2p.train',TRAIN_CFG_KEY='g2p.train.cfg',TRAIN_MODE_KEY='g2p.train.mode',TRAIN_ELO_BASE=1000;
+let trainWorker=null,trainTour=null,trainRunning=false,trainBusy=false,trainTimer=0,trainJob=0,trainNote='',idleBatterySafe=true,trainMode='auto';
+try{trainMode=localStorage.getItem(TRAIN_MODE_KEY)||'auto'}catch(e){}
+const trainCfg=()=>{const c=jget(TRAIN_CFG_KEY,{});return{pauseMin:Math.max(1,Math.min(1440,+c.pauseMin||30)),streakLimit:Math.max(5,Math.min(1000,+c.streakLimit||100))}};
 if(navigator.getBattery)navigator.getBattery().then(b=>{
-  const refresh=()=>{idleBatterySafe=!!b.charging||b.level>=.25;if(idleBatterySafe&&document.hidden)startIdleTraining();else if(!idleBatterySafe)stopIdleTraining()};
+  const refresh=()=>{idleBatterySafe=!!b.charging||b.level>=.25;if(idleBatterySafe)startIdleTraining();else stopIdleTraining()};
   refresh();b.addEventListener('chargingchange',refresh);b.addEventListener('levelchange',refresh);
 }).catch(()=>{});
-function cancelIdleTimer(){clearTimeout(idleTrainTimer);if(typeof cancelIdleCallback==='function')cancelIdleCallback(idleTrainTimer);idleTrainTimer=0}
-function scheduleIdleStep(fn,delay){
-  cancelIdleTimer();
-  idleTrainTimer=setTimeout(()=>{
-    if(typeof requestIdleCallback==='function')idleTrainTimer=requestIdleCallback(()=>{idleTrainTimer=0;fn()},{timeout:Math.max(1000,delay)});
-    else{idleTrainTimer=0;fn()}
-  },delay);
+const trainWanted=()=>trainMode!=='off'&&idleBatterySafe&&typeof Worker!=='undefined'&&!!window.G2Trainer&&(trainMode==='on'||document.hidden);
+function trainEnsure(){
+  if(!trainTour)trainTour=new G2Trainer.Tournament(trainCfg(),jget(TRAIN_KEY,null));
+  if(!trainWorker){
+    trainWorker=new Worker('js/train-worker.js?v=1');
+    trainWorker.onmessage=trainOnMessage;
+    trainWorker.onerror=e=>{trainNote='Worker en erreur : '+(e&&e.message||'inconnue');stopIdleTraining()};
+  }
 }
-function stopIdleTraining(){cancelIdleTimer();idleTrainState=null}
-function idleDailyBudget(){
-  const day=new Date().toISOString().slice(0,10),saved=jget('g2p.ai.idleBudget',{day,moves:0});
-  const budget=saved.day===day?saved:{day,moves:0};
-  return budget;
+function stopIdleTraining(){
+  trainRunning=false;trainBusy=false;clearTimeout(trainTimer);trainTimer=0;
+  if(trainWorker){trainWorker.terminate();trainWorker=null} /* coupe la partie en cours : aucune charge CPU résiduelle */
 }
 function startIdleTraining(){
-  if(!document.hidden||!navigator.onLine||daily||!idleBatterySafe)return;
-  if(Date.now()<idleTrainPause){scheduleIdleStep(startIdleTraining,idleTrainPause-Date.now());return}
-  if(idleDailyBudget().moves>=IDLE_DAILY_MOVES)return;
-  idleTrainMoves=0;idleTrainState=null;scheduleIdleStep(idleTrainingStep,IDLE_STEP_MS);
+  if(trainRunning||!trainWanted())return;
+  try{trainEnsure()}catch(e){trainNote='Entraînement indisponible : '+e.message;return}
+  trainRunning=true;trainNote='';trainTick();
 }
-function idleTrainingStep(){
-  if(!document.hidden||!navigator.onLine||daily||!idleBatterySafe){stopIdleTraining();return}
-  const dailyBudget=idleDailyBudget();
-  if(dailyBudget.moves>=IDLE_DAILY_MOVES)return;
-  if(idleTrainMoves>=IDLE_SESSION_MOVES){idleTrainPause=Date.now()+30*60*1000;stopIdleTraining();if(document.hidden)scheduleIdleStep(startIdleTraining,30*60*1000);return}
-  if(!idleTrainState)idleTrainState={s:E.create(11,15,2,false),moves:[]};
-  const a=loadAI(),state=idleTrainState.s,player=state.cur,candidate=a.pop[a.active]?.w||a.w;
-  const options=player===0?{w:candidate,book:a.book,sbook:a.sbook,antiBook:a.antiBook,antiSBook:a.antiSBook,opponent:a.opponent,lvl:2}:{w:E.DEFAULT_W,lvl:0};
-  const move=E.aiMove(state,E.rng(Date.now()+idleTrainMoves),options);
-  if(move&&E.apply(state,move))idleTrainState.moves.push(move);
-  idleTrainMoves++;dailyBudget.moves++;jset('g2p.ai.idleBudget',dailyBudget);
-  if(!move||state.free<=0){
-    a.simulations=(a.simulations||0)+1;
-    const score=state.sc[0]>state.sc[1]?1:state.sc[0]===state.sc[1]?.5:0;
-    if(score===1)E.learn(a.book,idleTrainState.moves,11,15,2,false,[0],0,a.sbook);
-    evolveAI(a,score,1000);saveAI(a);idleTrainState=null;
+function trainSide(p){
+  if(!p.learner)return{lvl:p.lvl,params:{}};
+  const a=loadAI(),cand=a.pop&&a.pop[a.active]&&a.pop[a.active].w||a.w;
+  return{lvl:p.lvl,params:{w:cand,book:a.book,sbook:a.sbook,antiBook:a.antiBook,antiSBook:a.antiSBook,opponent:a.opponent}};
+}
+function trainTick(){
+  clearTimeout(trainTimer);trainTimer=0;
+  if(!trainRunning||trainBusy)return;
+  if(!trainWanted()){stopIdleTraining();return}
+  if(trainTour.paused()){ /* série atteinte : on attend la fin de la pause puis on relance seul */
+    const ms=trainTour.st.pauseUntil-Date.now();
+    trainNote='Pause (série de '+trainTour.cfg.streakLimit+' victoires) — reprise à '+new Date(trainTour.st.pauseUntil).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+    trainTimer=setTimeout(trainTick,Math.min(ms+50,2147e3));return;
   }
-  if(idleTrainMoves>=IDLE_SESSION_MOVES){idleTrainPause=Date.now()+30*60*1000;stopIdleTraining();if(document.hidden)scheduleIdleStep(startIdleTraining,30*60*1000);return}
-  scheduleIdleStep(idleTrainingStep,IDLE_STEP_MS);
+  trainTour.cfg={...trainTour.cfg,...trainCfg()};
+  const m=trainTour.next();trainBusy=true;trainJob++;trainNote='Partie '+(trainTour.st.games+1)+' : '+m.a.name+' contre '+m.b.name;
+  trainWorker.postMessage({type:'play',id:trainJob,a:trainSide(m.a),b:trainSide(m.b),swap:m.swap,seed:m.seed,pair:[m.a.id,m.b.id]});
+  trainWorker.__pair=[m.a,m.b];
 }
+function trainOnMessage(ev){
+  const m=ev.data||{};trainBusy=false;
+  if(m.type==='error'){trainNote='Erreur de partie : '+m.message;trainTimer=setTimeout(trainTick,5000);return}
+  if(m.type!=='result'||!trainRunning||!trainWorker)return;
+  const [A,B]=trainWorker.__pair,r=m.result,rec=trainTour.record(A.id,B.id,r.winner,r.complete);
+  jset(TRAIN_KEY,trainTour.snapshot());
+  try{trainLearn(A,B,r)}catch(e){console.warn('Apprentissage ignoré',e)}
+  if(rec.pause)trainNote='Série atteinte : '+trainTour.player(rec.id).name+' — '+rec.streak+' victoires d’affilée';
+  trainTimer=setTimeout(trainTick,40);
+}
+function trainLearn(A,B,r){
+  if(!r.complete)return; /* une partie interrompue n'apprend rien (audit 3.3) */
+  const a=loadAI(),learner=A.learner?A:B.learner?B:null,decisive=r.winner!==2;
+  if(decisive){
+    const winP=r.winner===0?A:B,winSeat=r.winner===0?r.seatA:1-r.seatA;
+    /* on apprend des victoires de l'apprenante et de celles de niveaux au moins aussi forts qu'elle */
+    if(winP.learner||(learner&&winP.lvl>=learner.lvl))E.learn(a.book,r.moves,r.w,r.h,2,false,[winSeat],winSeat,a.sbook);
+  }
+  if(learner){
+    const other=learner===A?B:A,mine=r.winner===2?.5:((r.winner===0)===(learner===A))?1:0;
+    a.simulations=(a.simulations||0)+1;
+    evolveAI(a,mine,G2Trainer.LEVEL_ELO[other.lvl]||TRAIN_ELO_BASE);
+  }
+  saveAI(a);
+}
+window.G2Train={
+  status(){
+    const t=trainTour||(window.G2Trainer?new G2Trainer.Tournament(trainCfg(),jget(TRAIN_KEY,null)):null);
+    return t?{running:trainRunning,mode:trainMode,note:trainNote,paused:t.paused(),players:t.players.map(p=>({id:p.id,name:p.name,streak:t.st.streaks[p.id],...t.st.stats[p.id]})),
+      games:t.st.games,incomplete:t.st.incomplete,pauses:t.st.pauses,pauseUntil:t.st.pauseUntil,lastPause:t.st.lastPause,cfg:trainCfg()}:null;
+  },
+  setMode(mode){trainMode=['auto','on','off'].includes(mode)?mode:'auto';try{localStorage.setItem(TRAIN_MODE_KEY,trainMode)}catch(e){}stopIdleTraining();startIdleTraining()},
+  setConfig(c){jset(TRAIN_CFG_KEY,{...trainCfg(),...c});if(trainTour)trainTour.cfg={...trainTour.cfg,...trainCfg()}},
+  reset(){stopIdleTraining();trainTour=null;try{localStorage.removeItem(TRAIN_KEY)}catch(e){}startIdleTraining()},
+  start:startIdleTraining,stop:stopIdleTraining
+};
 function learnFromGame(win,r){
   if(!ai||daily||mode!=='local'||!aiP)return;
   flushAIMoveLog();const a=loadAI();a.st=a.st||{g:0,w:0};
@@ -1298,8 +1335,8 @@ async function cloudPull(force){
   }catch(e){console.warn('[G2Point] Lecture de la mémoire IA distante impossible.',e)}
 }
 setTimeout(()=>{cloudFlush();cloudPull(true);cloudBootstrap()},2500);
-document.addEventListener('visibilitychange',()=>{if(!document.hidden){stopIdleTraining();cloudFlush();cloudPull()}else startIdleTraining()});
-if(document.hidden)startIdleTraining();
+document.addEventListener('visibilitychange',()=>{if(!document.hidden){if(trainMode!=='on')stopIdleTraining();cloudFlush();cloudPull()}else startIdleTraining()});
+startIdleTraining(); /* se met en route seul selon le mode (auto = onglet caché ; on = en continu) */
 
 /* ===== Initialisation des nouveautés ===== */
 try{const l=localStorage.getItem('g2p.lvl');if(l!=null)$('lvl').value=l}catch(e){}

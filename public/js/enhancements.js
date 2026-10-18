@@ -31,12 +31,36 @@ if(lab)lab.hidden=true;
 if(launch)launch.hidden=true;
 const monitor=document.createElement('section');monitor.id='aiObserver';monitor.className='ai-observer';monitor.hidden=true;monitor.innerHTML='<header><div><small>APPRENTISSAGE AUTONOME</small><h2>Observatoire IA</h2></div><button type="button" id="observerClose">Fermer</button></header><p>L’IA observe les coups, les menaces et les trajectoires possibles autour de chaque point.</p><div class="observer-stats" id="observerStats"></div><button type="button" class="pri" id="observerLive">Demander une simulation en direct</button><div class="observer-log" id="observerLog" aria-live="polite">En attente d’une partie…</div><button type="button" id="observerClear">Effacer le journal visuel</button>';
 document.body.append(monitor);
+/* Panneau « Entraînement continu » : boucle IA contre IA (voir app.js, window.G2Train). */
+const trainBox=document.createElement('section');trainBox.className='train-box';trainBox.setAttribute('aria-label','Entraînement continu de l’IA');
+trainBox.innerHTML='<h3>Entraînement continu</h3>'
+ +'<div class="live-opts"><label>Mode<select id="trMode"><option value="auto">Auto (onglet en arrière-plan)</option><option value="on">Toujours actif</option><option value="off">Arrêté</option></select></label>'
+ +'<label>Pause après 100 victoires<select id="trPause"><option value="5">5 min</option><option value="15">15 min</option><option value="30">30 min</option><option value="60">1 h</option><option value="180">3 h</option></select></label>'
+ +'<label>Série de victoires<select id="trStreak"><option value="10">10</option><option value="50">50</option><option value="100">100</option><option value="250">250</option></select></label></div>'
+ +'<p id="trStatus" class="live-status" aria-live="polite"></p><div id="trTable" class="train-table"></div>'
+ +'<div class="demo-actions"><button type="button" id="trReset">Remettre les séries à zéro</button></div>';
+monitor.querySelector('.observer-stats').insertAdjacentElement('afterend',trainBox);
+const trainApi=()=>window.G2Train;
+function renderTrain(){
+  const api=trainApi(),st=api&&api.status();if(!st)return;
+  const set=(id,v)=>{const e=$(id);if(e&&document.activeElement!==e)e.value=String(v)};
+  set('trMode',st.mode);set('trPause',st.cfg.pauseMin);set('trStreak',st.cfg.streakLimit);
+  const left=st.paused?Math.max(0,Math.ceil((st.pauseUntil-Date.now())/60000)):0;
+  $('trStatus').textContent=(st.running?(st.paused?'En pause — reprise dans '+left+' min':'En cours'):'À l’arrêt')+' · '+st.games+' parties jouées'+(st.incomplete?' ('+st.incomplete+' interrompues)':'')+' · '+st.pauses+' pause(s)'+(st.note&&st.running?' · '+st.note:'')
+    +(st.lastPause?' · dernière série : '+st.lastPause.name+' ('+st.lastPause.streak+')':'');
+  const t=$('trTable');t.replaceChildren();
+  for(const p of st.players){const row=document.createElement('div');row.textContent=p.name+' : '+p.w+' V · '+p.l+' D · '+p.d+' N · série '+p.streak+' / '+st.cfg.streakLimit;t.append(row)}
+}
+$('trMode').onchange=()=>{trainApi()&&trainApi().setMode($('trMode').value);renderTrain()};
+$('trPause').onchange=()=>{trainApi()&&trainApi().setConfig({pauseMin:+$('trPause').value})};
+$('trStreak').onchange=()=>{trainApi()&&trainApi().setConfig({streakLimit:+$('trStreak').value})};
+$('trReset').onclick=()=>{if(confirm('Remettre à zéro les séries et statistiques de l’entraînement ?')){trainApi()&&trainApi().reset();renderTrain()}};
 $('observerClose').onclick=()=>monitor.hidden=true;
 $('observerClear').onclick=()=>$('observerLog').replaceChildren();
 let holdTimer=0,holdStarted=0;
 if(summary){
   summary.title='Maintenir appuyé pendant 15 secondes pour ouvrir l’observatoire IA';
-  const start=()=>{holdStarted=Date.now();clearTimeout(holdTimer);summary.classList.add('observer-holding');holdTimer=setTimeout(()=>{monitor.hidden=false;summary.classList.remove('observer-holding');renderObserver();},15000)};
+  const start=()=>{holdStarted=Date.now();clearTimeout(holdTimer);summary.classList.add('observer-holding');holdTimer=setTimeout(()=>{monitor.hidden=false;summary.classList.remove('observer-holding');renderObserver();renderTrain();},15000)};
   const stop=()=>{clearTimeout(holdTimer);summary.classList.remove('observer-holding')};
   summary.addEventListener('pointerdown',start);['pointerup','pointerleave','pointercancel','blur'].forEach(ev=>summary.addEventListener(ev,stop));
   summary.addEventListener('contextmenu',e=>e.preventDefault());
@@ -182,7 +206,7 @@ $('observerLive').onclick=openLive;
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!demo.hidden)closeLive()});
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&live.running)liveStop()}); /* pas de calcul en arrière-plan */
 addEventListener('resize',()=>{if(!demo.hidden)liveDraw()});
-setInterval(()=>{if(!monitor.hidden)renderObserver()},5000);
+setInterval(()=>{if(!monitor.hidden){renderObserver();renderTrain()}},2000);
 
 
 /* Thèmes supplémentaires, avec variables de rendu cohérentes pour le moteur canvas. */
