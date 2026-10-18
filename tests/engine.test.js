@@ -1,4 +1,15 @@
 const test=require('node:test'),assert=require('node:assert/strict'),E=require('../public/js/engine.js');
+
+test('le moteur refuse les coordonnées non entières sans modifier la partie',()=>{
+  const s=E.create(11,15,2,false),before={free:s.free,n:s.n,hash:E.stateHash(s)};
+  for(const move of [[1.5,2],[1,2.5],['1',2],[NaN,2],[Infinity,2],null,{x:1,y:2}]){
+    assert.equal(E.apply(s,move),false);
+  }
+  assert.equal(E.legal(s,1.5,2),false);
+  assert.equal(E.legal(s,1,2.5),false);
+  assert.deepEqual({free:s.free,n:s.n,hash:E.stateHash(s)},before);
+});
+
 const play=(s,pts)=>pts.forEach(p=>E.apply(s,p));
 // Rouge (joueur 0) entoure le point noir (5,5) ; Noir joue ailleurs.
 const ring=[[5,4],[5,5],[4,5],[0,0],[6,5],[0,2],[5,6]];
