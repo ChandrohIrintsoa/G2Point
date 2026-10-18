@@ -1244,6 +1244,11 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'){$('win').hidden=tru
 
 /* ===== Cloud : Cloudflare Worker + D1 (archives des parties + mémoire de l'IA partagée) ===== */
 const CLOUD_PULL_MS=3e5,OUTBOX_MAX=30;
+/* Jeton d'identité Firebase envoyé au Worker (qui le vérifie côté serveur) ; vide si la connexion Firebase n'est pas prête. */
+async function cloudAuthHeaders(){
+  try{if(auth&&auth.currentUser)return{Authorization:'Bearer '+await auth.currentUser.getIdToken()}}catch(e){}
+  return{};
+}
 const cloudUrl=()=>((window.G2_CLOUD&&window.G2_CLOUD.url)||'').replace(/\/$/,'');
 const devId=()=>{let v='';try{v=localStorage.getItem('g2p.pid')||''}catch(e){}if(!v){v='d'+(crypto.randomUUID?crypto.randomUUID().replace(/-/g,''):String(Math.random()).slice(2)+Date.now());try{localStorage.setItem('g2p.pid',v)}catch(e){}}return v};
 let flushing=false,lastPull=0;
@@ -1253,6 +1258,7 @@ function cloudQueue(r){
   if(mode=='online'&&me!==0)return; /* en ligne : un seul joueur envoie la partie, pour ne pas la faire apprendre deux fois */
   const id=mode=='online'?code:'g'+(crypto.randomUUID?crypto.randomUUID().replace(/-/g,''):String(Math.random()).slice(2)+Date.now());
   const rec={gameId:id,playerId:devId(),w:W,h:H,n:N,tm:!!TM,mode:daily?'daily':ai?'ai':mode=='online'?'online':'local',result:['win','loss','draw'].includes(r)?r:'na',moves:moves.map(m=>[m[0],m[1]])};
+  if(mode=='online'){try{const x=result();if(x.fl>=0)rec.forfeit=x.fl}catch(e){}} /* abandon : le Worker en tient compte pour le résultat archivé */
   jset('g2p.outbox',[...jget('g2p.outbox',[]),rec].slice(-OUTBOX_MAX));cloudFlush();
 }
 async function cloudFlush(){
@@ -1260,8 +1266,8 @@ async function cloudFlush(){
   try{
     let q=jget('g2p.outbox',[]);
     while(q.length){
-      const res=await fetch(cloudUrl()+'/api/archive',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(q[0])});
-      if(res.status===429||res.status>=500)break; // Erreur temporaire : conserver la file.
+      const res=await fetch(cloudUrl()+'/api/archive',{method:'POST',headers:{'Content-Type':'application/json',...await cloudAuthHeaders()},body:JSON.stringify(q[0])});
+      if(res.status===429||res.status===401||res.status>=500)break; /* 401 : connexion Firebase pas encore prête, on réessaiera */ // Erreur temporaire : conserver la file.
       if(!res.ok){
         const detail=await res.text().catch(()=> '');
         console.warn('[G2Point] Archive refusée définitivement',res.status,detail.slice(0,300));
@@ -1274,7 +1280,7 @@ async function cloudFlush(){
 let cloudAiTimer=0;
 async function cloudRequest(path,method='GET',body=null){
   if(!cloudUrl())return null;
-  const opts={method,headers:{'Content-Type':'application/json'}};
+  const opts={method,headers:{'Content-Type':'application/json',...await cloudAuthHeaders()}};
   if(body)opts.body=JSON.stringify(body);
   const res=await fetch(cloudUrl()+path,opts);
   if(!res.ok)throw new Error('Cloudflare '+res.status);
