@@ -4,6 +4,8 @@ compatibility_date = "2025-01-01"
 
 [vars]
 ALLOWED_ORIGINS = "https://g2ppoint.web.app,https://g2ppoint.firebaseapp.com"
+# Active la vérification des jetons Firebase sur les routes privées (déployer le site AVANT le Worker : voir DEPLOIEMENT.md).
+FIREBASE_PROJECT_ID = "g2ppoint"
 
 [[d1_databases]]
 binding = "DB"

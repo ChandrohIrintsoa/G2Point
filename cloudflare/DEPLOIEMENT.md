@@ -33,7 +33,10 @@ npx wrangler secret put IP_SALT --config cloudflare/wrangler.toml
 
 Saisir une longue valeur aléatoire. Ne pas la publier dans GitHub ni dans le code du navigateur.
 
-## 4. Déployer le Worker
+## 4. Déployer le Worker (après le site)
+
+Ordre à respecter : **d'abord Firebase Hosting (étape 6), ensuite le Worker.** Le site envoie un jeton Firebase ; le Worker déployé avec `FIREBASE_PROJECT_ID` le exige. Un ancien site déjà en cache n'enverrait pas de jeton et ses synchronisations seraient refusées (401) jusqu'à son rechargement.
+
 
 ```bash
 npx wrangler deploy --config cloudflare/wrangler.toml
@@ -60,27 +63,39 @@ firebase deploy --only hosting
 
 L'origine autorisée dans `wrangler.toml` correspond au projet Firebase `g2ppoint`. Si le domaine Hosting est différent, mettre à jour `ALLOWED_ORIGINS`, puis redéployer le Worker.
 
+## Identité et sécurité des routes
+
+- `FIREBASE_PROJECT_ID` (dans `wrangler.toml`, actuellement `g2ppoint`) active la vérification des jetons Firebase (RS256, clés Google `securetoken`). Les routes `profile`, `progress`, `ai/player` et `archive` exigent alors `Authorization: Bearer <jeton>`.
+- Chaque `playerId` est lié au compte Firebase (uid) qui le réclame en premier (table `player_owner`). Un autre compte reçoit `403`.
+- Sans `FIREBASE_PROJECT_ID`, le comportement historique (sans identité vérifiée) est conservé : à n'utiliser que pour un test local.
+- Limites : corps lu en flux avec plafond (96 Ko archives, 4 à 32 Ko ailleurs) ; compteurs atomiques dans la table `rate_limits` (écritures : 30/min/IP, lectures : 120/min/IP ; archives : 40/h/IP et 20/h/joueur).
+- Les tables `player_owner` et `rate_limits` sont ajoutées par `schema.sql` (relancer l'étape 2) ; le Worker les crée aussi à la volée si elles manquent.
+- `GET /api/ai` renvoie une mémoire vide : l'apprentissage collectif est **désactivé** (archives non fiables côté mode). L'IA apprend localement, sur chaque appareil.
+
 ## Données conservées dans D1
 
-- Archives de parties validées par le moteur du jeu
-- Mémoire collective de l'IA
+- Archives de parties rejouées par le moteur (résultat recalculé côté serveur, abandons pris en compte)
 - Pseudo du joueur
 - Progression, ELO, succès et statistiques face-à-face
-- Paramètres d'entraînement individuel de l'IA
+- Paramètres d'entraînement individuel de l'IA (poids)
+- Lien playerId ↔ compte Firebase (uid anonyme) et compteurs de limitation (expirent seuls)
+- Empreinte salée de l'adresse IP (jamais l'IP en clair)
 
-Les messages de discussion ne sont pas envoyés à Cloudflare et ne sont pas enregistrés dans les tables D1.
+Les messages de discussion ne sont pas envoyés à Cloudflare.
 
 ## Routes utilisées
 
-- `POST /api/archive`
-- `GET /api/ai`
-- `GET /api/profile?playerId=...`
-- `PUT /api/profile`
-- `GET /api/progress?playerId=...`
-- `PUT /api/progress`
-- `GET /api/ai/player?playerId=...`
-- `PUT /api/ai/player`
+- `POST /api/archive` (jeton requis)
+- `GET /api/ai` (public, mémoire vide)
+- `GET|PUT /api/profile` (jeton requis)
+- `GET|PUT /api/progress` (jeton requis)
+- `GET|PUT /api/ai/player` (jeton requis)
 
-## Limite importante
+## Firestore : TTL à activer (une fois)
 
-Les identifiants joueurs utilisés par cette version sont des identifiants aléatoires propres à l'installation du navigateur. Ils permettent la synchronisation entre les sessions de ce même navigateur, mais pas encore une restauration automatique du profil sur un nouvel appareil. Pour cela, il faudra lier les données à un compte Firebase Auth vérifié et faire valider son jeton par le Worker avant d'ouvrir les données d'un compte.
+Le champ `expireAt` ne supprime rien tout seul. Dans la console Firebase → Firestore → TTL, créer une politique sur le champ `expireAt` pour les groupes de collections `games`, `messages` et `lobby`. Les règles refusent déjà les coups et prises de siège sur une partie expirée ; le TTL ne sert qu'à purger les données.
+
+## Limites connues
+
+- Les règles Firestore ne peuvent pas rejouer le moteur de jeu. Elles vérifient le tour, la case libre, la limite de rythme (250 ms), la série de coups consécutifs (16 maximum), l'expiration et la fin prématurée, mais pas qu'une capture a réellement eu lieu. Une autorité serveur complète (Cloud Function qui rejoue les coups) reste la correction définitive.
+- La limitation du chat n'existe que côté navigateur : Firestore ne permet pas de limiter proprement la fréquence de création de documents par utilisateur. App Check et une Cloud Function sont les pistes.
