@@ -664,7 +664,7 @@ async function place(pt){
   if(mode==='local'){saveLocal();aiTurn();return}
   const sentCode=code;
   try{ /* une seule écriture (pas de transaction) ; les règles Firestore valident tour et case libre */
-    await ref.update({moves:firebase.firestore.FieldValue.arrayUnion(pt[1]*W+pt[0]),cur:S.cur,lastAt:firebase.firestore.FieldValue.serverTimestamp()});
+    await ref.update({moves:firebase.firestore.FieldValue.arrayUnion(pt[1]*W+pt[0]),cur:S.cur,run:S.cur===(gameData&&Number.isInteger(gameData.cur)?gameData.cur:S.cur)?((gameData&&gameData.run)|0)+1:0,lastAt:firebase.firestore.FieldValue.serverTimestamp()});
   }catch(e){
     if(sentCode===code){moves=(gameData&&gameData.moves||[]).map(k=>[k%W,(k/W)|0]);S=null;upd()}
     note('Coup non confirmé : vérifie le tour et la connexion, puis réessaie.');console.warn(e)

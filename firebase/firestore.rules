@@ -63,6 +63,8 @@ service cloud.firestore {
 
     function validSeatClaim(seat, name, minimumPlayers) {
       return resource.data.n >= minimumPlayers
+        && resource.data.ended == false
+        && resource.data.expireAt > request.time
         && resource.data[seat] == ''
         && request.resource.data[seat] == request.auth.uid
         && validName(request.resource.data[name])
@@ -78,12 +80,18 @@ service cloud.firestore {
       let oc = resource.data.get('cur', 0);
       let nc = request.resource.data.get('cur', 0);
       let last = resource.data.get('lastAt', resource.data.createdAt);
+      // Série de coups consécutifs du même joueur (captures = il rejoue). Les règles ne peuvent pas rejouer le moteur de jeu :
+      // elles plafonnent donc la série pour qu'un client modifié ne puisse pas garder la main indéfiniment (voir DEPLOIEMENT.md).
+      let oldRun = resource.data.get('run', 0);
+      let newRun = request.resource.data.get('run', 0);
       return isPlayer(resource.data)
         && request.time >= last + duration.value(250, 'ms')
+        && resource.data.expireAt > request.time
         && allSeated(resource.data)
         && [resource.data.s0, resource.data.s1, resource.data.s2, resource.data.s3][oc] == request.auth.uid
         && nc is int
-        && (nc == oc || nc == (oc + 1) % resource.data.n)
+        && ((nc == oc && newRun is int && newRun == oldRun + 1 && newRun <= 16)
+          || (nc == (oc + 1) % resource.data.n && newRun == 0))
         && resource.data.ended == false
         && request.resource.data.lastAt == request.time
         && newMoves is list
@@ -96,10 +104,13 @@ service cloud.firestore {
         && !oldMoves.hasAny([newMoves[oldMoves.size()]]);
     }
 
+    // Fin naturelle : les règles ne peuvent pas recalculer les cases verrouillées, mais une partie ne peut pas être
+    // terminée avant que la moitié du plateau ait été jouée (l'abandon a ses propres règles : validResign / validForfeit).
     function validEnd() {
       return isPlayer(resource.data)
         && resource.data.ended == false
-        && request.resource.data.ended == true;
+        && request.resource.data.ended == true
+        && resource.data.moves.size() * 2 >= resource.data.w * resource.data.h;
     }
 
     // Abandon : un joueur peut clore la partie si le joueur dont c'est le tour est inactif depuis plus de 2 minutes.
@@ -146,7 +157,7 @@ service cloud.firestore {
       let changed = request.resource.data.diff(resource.data).affectedKeys();
       return signedIn() && (
         changed.hasAny(['moves'])
-          ? changed.hasOnly(['moves', 'cur', 'lastAt']) && validMoveAppend()
+          ? changed.hasOnly(['moves', 'cur', 'lastAt', 'run']) && validMoveAppend()
           : changed.hasAny(['s1', 'name1'])
             ? changed.hasOnly(['s1', 'name1']) && validSeatClaim('s1', 'name1', 2)
             : changed.hasAny(['s2', 'name2'])
@@ -213,6 +224,16 @@ service cloud.firestore {
 
     // Partie rapide : annonces publiques (sans code), purgées par TTL sur expireAt ou supprimées par l'hôte.
     // La liste est autorisée mais ne révèle que des informations non sensibles (hôte anonyme, format de la partie).
+    // L'annonce doit décrire exactement la partie (même hôte, joueurs, équipes, dimensions) : pas de fausse annonce.
+    function lobbyMatchesGame(code) {
+      let g = get(/databases/$(database)/documents/games/$(code)).data;
+      return g.s0 == request.auth.uid
+        && g.n == request.resource.data.n
+        && g.tm == request.resource.data.tm
+        && g.w == request.resource.data.w
+        && g.h == request.resource.data.h;
+    }
+
     match /lobby/{lobbyCode} {
       allow read: if signedIn();
       allow create: if signedIn()
@@ -228,7 +249,7 @@ service cloud.firestore {
         && request.resource.data.expireAt is timestamp
         && request.resource.data.expireAt > request.time
         && request.resource.data.expireAt <= request.time + duration.value(2, 'h')
-        && get(/databases/$(database)/documents/games/$(lobbyCode)).data.s0 == request.auth.uid;
+        && lobbyMatchesGame(lobbyCode);
       allow update: if false;
       allow delete: if signedIn() && resource.data.host == request.auth.uid;
     }
