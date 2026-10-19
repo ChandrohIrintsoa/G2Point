@@ -26,7 +26,7 @@ test('coup dans son tour accepté, hors tour refusé',async()=>{
   await assertSucceeds(mv('b',6,0));
 });
 test('coup avant que la salle soit pleine refusé',async()=>{await assertSucceeds(setDoc(ref('a'),base()));await pause();await assertFails(mv('a',5,1))});
-test('case déjà jouée refusée',async()=>{await join();await pause();await assertSucceeds(mv('a',5,0));await pause();await assertFails(mv('a',5,0))});
+test('case déjà jouée refusée',async()=>{await join();await pause();await assertSucceeds(mv('a',5,1));await pause();await assertFails(mv('b',5,0))});
 test('abandon refusé tant que le joueur n’est pas inactif',async()=>{
   await join();await assertFails(updateDoc(ref('b'),{ended:true,forfeit:0}));
 });
