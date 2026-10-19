@@ -26,7 +26,7 @@ test('coup dans son tour accepté, hors tour refusé',async()=>{
   await assertSucceeds(mv('b',6,0));
 });
 test('coup avant que la salle soit pleine refusé',async()=>{await assertSucceeds(setDoc(ref('a'),base()));await pause();await assertFails(mv('a',5,1))});
-test('case déjà jouée refusée',async()=>{await join();await pause();await assertSucceeds(mv('a',5,0));await pause();await assertFails(mv('a',5,0))});
+test('case déjà jouée refusée',async()=>{await join();await pause();await assertSucceeds(mv('a',5,1));await pause();await assertFails(mv('b',5,0))});
 test('abandon refusé tant que le joueur n’est pas inactif',async()=>{
   await join();await assertFails(updateDoc(ref('b'),{ended:true,forfeit:0}));
 });
@@ -38,10 +38,55 @@ test('abandon volontaire : uniquement pour soi-même',async()=>{
 test('revanche seulement après la fin, avec les deux champs et un code valide',async()=>{
   await join();
   await assertFails(updateDoc(ref('a'),{next:'ZZZZ2',nextBy:'a'}));  // partie non terminée
-  await assertSucceeds(updateDoc(ref('a'),{ended:true}));
+  await assertSucceeds(updateDoc(ref('a'),{ended:true,forfeit:0}));  // fin par abandon volontaire
   await assertFails(updateDoc(ref('b'),{next:'ZZZZ2'}));             // nextBy manquant
   await assertFails(updateDoc(ref('b'),{next:'ZZZZ2',nextBy:'a'}));  // usurpation d'identité
   await assertFails(updateDoc(ref('b'),{next:'zzzz2',nextBy:'b'}));  // format de code invalide
   await assertSucceeds(updateDoc(ref('b'),{next:'ZZZZ2',nextBy:'b'}));
   await assertFails(updateDoc(ref('a'),{next:'YYYY3',nextBy:'a'}));  // revanche déjà publiée
+});
+
+/* ---- Durcissement (audit) ---- */
+const admin=fn=>env.withSecurityRulesDisabled(c=>fn(c.firestore()));
+const mvRun=(u,cell,cur,run)=>updateDoc(ref(u),{moves:arrayUnion(cell),cur,run,lastAt:serverTimestamp()});
+test('garder la main sans capture est plafonné : série numérotée, 16 maximum',async()=>{
+  await join();await pause();
+  await assertFails(mv('a',5,0));                 // ancien client : garde la main sans compteur de série
+  await assertSucceeds(mvRun('a',5,0,1));         // capture : il rejoue, série 1
+  await pause();await assertFails(mvRun('a',6,0,3));   // saut de compteur
+  await assertSucceeds(mvRun('a',6,0,2));
+  await pause();await assertFails(mvRun('a',7,1,2));   // passer la main impose une série remise à 0
+  await assertSucceeds(mvRun('a',7,1,0));
+});
+test('la série ne peut pas dépasser 16 coups consécutifs',async()=>{
+  await join();
+  await admin(d=>updateDoc(doc(d,'games','ABCDE'),{run:16,moves:[1,2,3],lastAt:Timestamp.fromMillis(Date.now()-5000)}));
+  await assertFails(mvRun('a',9,0,17));
+  await assertSucceeds(mvRun('a',9,1,0));
+});
+test('fin naturelle refusée avant la moitié du plateau, acceptée ensuite',async()=>{
+  await join();
+  await assertFails(updateDoc(ref('b'),{ended:true}));            // partie à peine commencée
+  await admin(d=>updateDoc(doc(d,'games','ABCDE'),{moves:Array.from({length:83},(_,i)=>i)}));
+  await assertSucceeds(updateDoc(ref('b'),{ended:true}));
+});
+test('prise de siège refusée sur une partie terminée ou expirée',async()=>{
+  await assertSucceeds(setDoc(ref('a'),base()));
+  await admin(d=>updateDoc(doc(d,'games','ABCDE'),{ended:true}));
+  await assertFails(updateDoc(ref('b'),{s1:'b',name1:'B'}));
+  await admin(d=>updateDoc(doc(d,'games','ABCDE'),{ended:false,expireAt:Timestamp.fromMillis(Date.now()-1000)}));
+  await assertFails(updateDoc(ref('b'),{s1:'b',name1:'B'}));
+});
+test('aucun coup sur une partie expirée',async()=>{
+  await join();
+  await admin(d=>updateDoc(doc(d,'games','ABCDE'),{expireAt:Timestamp.fromMillis(Date.now()-1000),lastAt:Timestamp.fromMillis(Date.now()-5000)}));
+  await assertFails(mv('a',5,1));
+});
+test('annonce de lobby : doit correspondre exactement à la partie',async()=>{
+  await assertSucceeds(setDoc(ref('a'),base()));
+  const lob=(over={})=>setDoc(doc(db('a'),'lobby','ABCDE'),{host:'a',n:2,tm:false,w:11,h:15,createdAt:serverTimestamp(),expireAt:Timestamp.fromMillis(Date.now()+3600e3),...over});
+  await assertFails(lob({n:4}));       // fausse annonce : la partie est à 2 joueurs
+  await assertFails(lob({w:23}));      // mauvaises dimensions
+  await assertFails(lob({tm:true}));   // mauvais mode équipes
+  await assertSucceeds(lob());
 });

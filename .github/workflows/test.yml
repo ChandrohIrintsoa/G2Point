@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [main]
+    branches: [main, 'feat/**', 'fix/**'] # la CI tourne aussi sur les branches de travail
   workflow_dispatch:
 
 permissions:
@@ -27,6 +27,6 @@ jobs:
           distribution: temurin
           java-version: '21'
       - name: Installer les dépendances
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
       - name: Exécuter les tests moteur et Firestore
         run: npx --yes firebase-tools emulators:exec --only firestore --project g2p-test "npm test"

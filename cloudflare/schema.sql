@@ -39,3 +39,16 @@ CREATE TABLE IF NOT EXISTS player_ai (
   wins INTEGER NOT NULL DEFAULT 0,
   updated_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
+
+-- Identité : un playerId est lié au uid Firebase qui l'a réclamé en premier (voir worker.mjs, gate()).
+CREATE TABLE IF NOT EXISTS player_owner (
+  player_id TEXT PRIMARY KEY,
+  uid TEXT NOT NULL,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
+-- Limitation de fréquence atomique : une ligne par clé et fenêtre de temps.
+CREATE TABLE IF NOT EXISTS rate_limits (
+  k TEXT PRIMARY KEY,
+  c INTEGER NOT NULL,
+  exp INTEGER NOT NULL
+);

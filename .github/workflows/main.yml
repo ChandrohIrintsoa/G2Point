@@ -36,7 +36,7 @@ jobs:
           distribution: temurin
           java-version: "21"
       - name: Installer les dépendances
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
       - name: Exécuter tous les tests dans l'émulateur Firestore
         run: npx --yes firebase-tools emulators:exec --only firestore --project g2p-test "npm test"
 

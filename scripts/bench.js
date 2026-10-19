@@ -22,21 +22,23 @@ function play(seed,levelA,levelB,swap){
 const quantile=(arr,q)=>{if(!arr.length)return 0;const a=arr.slice().sort((x,y)=>x-y);return a[Math.min(a.length-1,Math.floor((a.length-1)*q))]};
 const results=[];
 for(const [a,b] of pairs){
-  const stat={a:NAMES[a],b:NAMES[b],games:gamesPerPair,aWins:0,bWins:0,draws:0,completed:0,moves:[],elapsed:[],times:[]};
+  const stat={a:NAMES[a],b:NAMES[b],games:gamesPerPair,aWins:0,bWins:0,draws:0,completed:0,incomplete:0,moves:[],elapsed:[],times:[]};
   for(let i=0;i<gamesPerPair;i++){
     const g=play((0x475032+i*7919+a*131+b*977)|0,a,b,i%2===1);
+    /* Une partie interrompue (limite de coups atteinte) n'est ni une victoire ni une défaite : on la compte à part (audit 3.3). */
+    if(!g.complete){stat.incomplete=(stat.incomplete||0)+1;stat.moves.push(g.moves);stat.elapsed.push(g.elapsed);stat.times.push(...g.timesA,...g.timesB);continue}
     if(g.win===0)stat.aWins++;else if(g.win===1)stat.bWins++;else stat.draws++;
-    if(g.complete)stat.completed++;
+    stat.completed++;
     stat.moves.push(g.moves);stat.elapsed.push(g.elapsed);stat.times.push(...g.timesA,...g.timesB);
   }
-  stat.aScoreRate=+((stat.aWins+.5*stat.draws)/gamesPerPair).toFixed(4);
+  stat.aScoreRate=stat.completed?+((stat.aWins+.5*stat.draws)/stat.completed).toFixed(4):null; /* taux calculé sur les parties terminées uniquement */
   stat.meanMoves=+(stat.moves.reduce((x,y)=>x+y,0)/stat.moves.length).toFixed(2);
   stat.meanGameSeconds=+(stat.elapsed.reduce((x,y)=>x+y,0)/stat.elapsed.length/1000).toFixed(2);
   stat.meanMoveMs=+(stat.times.reduce((x,y)=>x+y,0)/Math.max(1,stat.times.length)).toFixed(2);
   stat.p95MoveMs=+quantile(stat.times,.95).toFixed(2);
   delete stat.moves;delete stat.elapsed;delete stat.times;
   results.push(stat);
-  console.log(`${stat.a} vs ${stat.b}: ${stat.aWins}-${stat.bWins}-${stat.draws}, score ${(stat.aScoreRate*100).toFixed(1)} %, p95 ${stat.p95MoveMs} ms`);
+  console.log(`${stat.a} vs ${stat.b}: ${stat.aWins}-${stat.bWins}-${stat.draws}${stat.incomplete?' ('+stat.incomplete+' interrompues, exclues)':''}, score ${stat.aScoreRate==null?'n/a':(stat.aScoreRate*100).toFixed(1)+' %'}, p95 ${stat.p95MoveMs} ms`);
 }
 const output={schema:1,createdAt:new Date().toISOString(),commit:process.env.GITHUB_SHA||null,seedBase:0x475032,gamesPerPair,maxTurns,board:'11x15',results};
 const outDir=path.join(__dirname,'..','bench');fs.mkdirSync(outDir,{recursive:true});

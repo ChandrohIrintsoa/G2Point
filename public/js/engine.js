@@ -37,8 +37,8 @@ function updateScalarHash(s,before){
   s._hash=h>>>0;
 }
 const CAND_RADIUS=4;      /* scan tactique à rayon 4 autour de chaque point existant */
-const HARD_TOP=5,HARD_REPLY=.8,SEARCH_BEAM=6,SEARCH_DEPTH=4,TRANSPOSE_MAX=10000; /* recherche bornée, cache de transpositions */
-const LEVELS=[{name:'Facile',noise:4,block:.3,book:false,deep:false},{name:'Normal',noise:.3,block:1,book:true,deep:false},{name:'Difficile',noise:.05,block:1,book:true,deep:true},{name:'Champion',noise:0,block:1.35,book:true,deep:true,champion:true}];
+const TACT_TOP=6,TACT_THREAT=.3,TACT_FORK=.5,HARD_TOP=5,HARD_REPLY=.8,SEARCH_BEAM=6,SEARCH_DEPTH=4,TRANSPOSE_MAX=10000; /* recherche bornée, cache de transpositions */
+const LEVELS=[{name:'Facile',noise:4,block:.3,book:false,deep:false},{name:'Normal',noise:.3,block:1,book:true,deep:false,tactic:true},{name:'Difficile',noise:.05,block:1,book:true,deep:true},{name:'Champion',noise:0,block:1.35,book:true,deep:true,champion:true}];
 function create(w,h,n,tm){const K=tm?2:n,s={n:0,w,h,N:n,tm:!!tm,o:grid(w,h,0),d:grid(w,h,false),sc:Array(K).fill(0),big:Array(K).fill(0),combo:0,loops:[],cur:0,bonus:false,cap:[],capT:0,blk:grid(w,h,false),terr:Array(K).fill(0),free:w*h};s._hash=computeHash(s);return s}
 /* Case jouable : dans le terrain, vide, et hors territoire confiné (zone fermée où une capture a eu lieu) */
 const legal=(s,x,y)=>Number.isInteger(x)&&Number.isInteger(y)&&x>=0&&y>=0&&x<s.w&&y<s.h&&!s.o[y][x]&&!s.blk[y][x];
@@ -130,6 +130,7 @@ function apply(s,move){
     const c=scan(s,u,[x,y])[0]; /* early-exit : seule la composante du point nous intéresse */
     if(c){const oo=s.o[y][x],od=s.d[y][x],ob=s.blk[y][x];s.d[y][x]=true;updateCellHash(s,x,y,oo,od,ob);s.sc[u]++;if(!s.big[u])s.big[u]=1;s.loops.push({t:u,c});mark(s,c,u);s.cap=[[x,y]];s.capT=u;break}
   }
+  s.n=(s.n|0)+1; /* compteur de coups tenu par le moteur lui-même : simulations, apprentissage et recherche voient la bonne phase de partie */
   s.bonus=g>0;s.combo=s.bonus?s.combo+1:0;if(!s.bonus)s.cur=(s.cur+1)%s.N; /* capture = le même joueur rejoue */
   updateScalarHash(s,before);
   return true;
@@ -320,6 +321,16 @@ function replyGain(s,opp){
   for(const [x,y] of list){const c=clone(s);if(!apply(c,[x,y]))continue;const g=c.sc[opp]-s.sc[opp];if(g>m)m=g}
   return m;
 }
+/* Menaces : nombre de cases proches de (x,y) où le joueur t capturerait au prochain coup si c'était son tour.
+   Plusieurs menaces simultanées = fourchette (l'adversaire ne peut pas toutes les parer). */
+function threatCount(s,t,x,y,radius=3){
+  const c0=clone(s);c0.cur=t;c0.bonus=false;c0._hash=computeHash(c0);let n=0;
+  for(let j=Math.max(0,y-radius);j<=Math.min(s.h-1,y+radius);j++)for(let i=Math.max(0,x-radius);i<=Math.min(s.w-1,x+radius);i++){
+    if(!legal(c0,i,j))continue;
+    const c=clone(c0);if(apply(c,[i,j])&&c.sc[t]>c0.sc[t])n++;
+  }
+  return n;
+}
 /* Projection stratégique Dijkstra/A* : cibles imaginaires dans un rayon de 4 cases
    et dix décisions adverses plausibles. Une projection est un scénario, pas une certitude. */
 const FUTURE_HORIZON=10,IMAGINARY_RADIUS=4,FORECAST_BEAM=3;
@@ -390,6 +401,18 @@ function aiMove(s,rnd=Math.random,P){
     v+=rnd()*L.noise;scored.push({m:[x,y],v,cap:a.bonus});
   }
   scored.sort((p,q)=>q.v-p.v);
+  if(L.tactic){
+    /* Niveau tactique (sans recherche profonde) : on regarde UN coup adverse et UN coup à soi plus loin.
+       - ne pas offrir de capture à l'adversaire ;
+       - préférer les coups qui créent des menaces de capture, surtout plusieurs à la fois (fourchette). */
+    for(const c of scored.slice(0,TACT_TOP)){
+      const a=clone(s);if(!apply(a,c.m))continue;
+      if(!c.cap)c.v-=replyGain(a,opp)*w[1]*HARD_REPLY;
+      const th=threatCount(a,t,c.m[0],c.m[1]);
+      c.v+=Math.min(th,3)*w[0]*TACT_THREAT+(th>=2?w[0]*TACT_FORK:0);
+    }
+    scored.sort((p,q)=>q.v-p.v);
+  }
   if(L.deep&&(!P||P.predictive!==false)){
     const map=predictiveMap(s,opp,FUTURE_HORIZON,L.champion?200:130);
     for(const c of scored){const k=c.m[1]*W+c.m[0],risk=map.risk[k]||0;c.v+=risk*w[2]*.22;if(map.forecast.projected.has(k))c.v+=w[2]*.45}
