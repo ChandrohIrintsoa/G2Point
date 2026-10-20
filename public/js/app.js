@@ -1364,7 +1364,7 @@ async function brainSync(){
   }finally{brainBusy=false}
 }
 window.G2Sync={now:brainSync,status:()=>({enabled:!!cloudUrl(),busy:brainBusy,dirty:brainDirty,version:brainVer,last:brainAt,note:brainNote})};
-setInterval(()=>{if(brainDirty||trainRunning)brainSync()},BRAIN_PULL_MS);
+setInterval(()=>{brainSync()},BRAIN_PULL_MS); /* récupère aussi l'apprentissage ajouté par un autre appareil */
 async function linkCall(path,body){
   const res=await fetch(cloudUrl()+path,{method:'POST',headers:{'Content-Type':'application/json',...await cloudAuthHeaders()},body:JSON.stringify(body)});
   const data=await res.json().catch(()=>({}));
