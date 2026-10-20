@@ -61,3 +61,13 @@ test('scénario deux appareils : après synchro croisée, les deux ont tout ce q
   const p1=sync(phone),c1=sync(pc),p2=sync(p1);
   for(const d of [c1,p2]){assert.ok(d.book.p1&&d.book.c1);assert.deepEqual(d.book.shared,[6,3,4,1]);assert.deepEqual(d.w,W(8))}
 });
+
+test('motif maîtrisé : ≥ 6 rencontres, ≥ 80 % de victoires, gain positif ; détecté pour déclencher la synchro',()=>{
+  assert.equal(B.isMastered([6,4,5,0]),true);
+  assert.equal(B.isMastered([5,9,5,0]),false,'pas assez rencontré');
+  assert.equal(B.isMastered([10,9,7,0]),false,'moins de 80 % de victoires');
+  assert.equal(B.isMastered([10,1,9,0]),false,'gain trop faible');
+  const a=ai({book:{a:[6,4,5,0],b:[2,2,2,0]},sbook:{c:[8,8,8,0]}});
+  assert.equal(B.masteredCount(a),2);
+  a.book.b=[6,6,6,0];assert.equal(B.masteredCount(a),3,'un nouveau motif franchit le seuil');
+});
