@@ -1,5 +1,5 @@
 /* Web Worker : joue les parties d'entraînement hors du fil principal (l'interface ne gèle jamais). */
-importScripts('engine.js?v=21','trainer.js?v=1');
+importScripts('engine.js?v=21','trainer.js?v=2');
 const E=self.G2Engine,T=self.G2Trainer;
 self.onmessage=ev=>{
   const m=ev.data||{};

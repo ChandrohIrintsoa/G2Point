@@ -105,3 +105,99 @@ test('archives : un abandon est pris en compte dans le résultat (audit 2.4)',as
   assert.equal(validate({...base,forfeit:'0'}),null);
   assert.equal(validate({...base,mode:'ai',forfeit:1}),null,'un abandon n\'existe qu\'en ligne');
 });
+
+/* ---- Cerveau IA synchronisé : verrou optimiste (version) ---- */
+function brainDb(){
+  const base=fakeDb(),rows=new Map(),orig=base.prepare.bind(base);
+  return Object.assign(base,{rows,prepare(sql){
+    const q=orig(sql);
+    if(!/player_brain/.test(sql)||/CREATE TABLE/.test(sql))return q;
+    let args=[];
+    const w={bind(...a){args=a;q.bind(...a);return w},
+      async first(){const r=rows.get(args[0]);return r?{brain_json:r.json,version:r.version,updated_at:1}:null},
+      async run(){
+        if(/INSERT OR IGNORE INTO player_brain/.test(sql)){if(rows.has(args[0]))return{meta:{changes:0}};rows.set(args[0],{json:args[1],version:1});return{meta:{changes:1}}}
+        if(/UPDATE player_brain/.test(sql)){const r=rows.get(args[1]);if(!r||r.version!==args[2])return{meta:{changes:0}};r.json=args[0];r.version++;return{meta:{changes:1}}}
+        return{meta:{changes:0}}}};
+    return w}});
+}
+const goodBrain=(extra={})=>({v:1,at:1,w:[1,2,3,4,5,6],games:3,simulations:4,book:{k:[1,1,1,1]},...extra});
+
+test('cerveau IA : PUT puis GET ; version périmée refusée (409) avec l\'état courant ; jamais d\'écrasement silencieux',async()=>{
+  const W=await import('../cloudflare/worker.mjs');W._resetForTests();
+  const {pair,jwks}=await makeKeys(),db=brainDb(),env={DB:db,ALLOWED_ORIGINS:ORIGIN,FIREBASE_PROJECT_ID:'proj',FIREBASE_JWKS:jwks};
+  const tok=await token(pair,{sub:'uid-A'}),id='player_123456';
+  const put=(base,brain)=>W.default.fetch(req('/api/ai/brain',{method:'PUT',tok,body:{playerId:id,base,brain}}),env);
+  let r=await put(0,goodBrain());assert.equal(r.status,200);assert.equal((await r.json()).version,1);
+  r=await W.default.fetch(req('/api/ai/brain?playerId='+id,{tok}),env);
+  const g=await r.json();assert.equal(g.version,1);assert.equal(g.brain.simulations,4);
+  r=await put(1,goodBrain({simulations:9}));assert.equal(r.status,200);assert.equal((await r.json()).version,2);
+  r=await put(1,goodBrain({simulations:99}));assert.equal(r.status,409,'base périmée');
+  const c=await r.json();assert.equal(c.conflict,true);assert.equal(c.version,2);assert.equal(c.brain.simulations,9);
+  r=await put(0,goodBrain());assert.equal(r.status,409,'création sur ligne existante refusée');
+});
+test('cerveau IA : sans jeton 401 ; autre compte 403 ; contenu invalide 422',async()=>{
+  const W=await import('../cloudflare/worker.mjs');W._resetForTests();
+  const {pair,jwks}=await makeKeys(),db=brainDb(),env={DB:db,ALLOWED_ORIGINS:ORIGIN,FIREBASE_PROJECT_ID:'proj',FIREBASE_JWKS:jwks};
+  const a=await token(pair,{sub:'uid-A'}),b=await token(pair,{sub:'uid-B'}),id='player_123456';
+  assert.equal((await W.default.fetch(req('/api/ai/brain?playerId='+id),env)).status,401);
+  assert.equal((await W.default.fetch(req('/api/ai/brain',{method:'PUT',tok:a,body:{playerId:id,base:0,brain:goodBrain()}}),env)).status,200);
+  assert.equal((await W.default.fetch(req('/api/ai/brain?playerId='+id,{tok:b}),env)).status,403,'le cerveau d\'un autre est inaccessible');
+  assert.equal((await W.default.fetch(req('/api/ai/brain',{method:'PUT',tok:b,body:{playerId:id,base:1,brain:goodBrain()}}),env)).status,403);
+  for(const bad of [goodBrain({w:[1,2,3]}),goodBrain({book:{['x'.repeat(300)]:[1,1,1,1]}}),goodBrain({book:{k:[1,'a',1,1]}}),goodBrain({games:-1}),{v:2},goodBrain({pop:[1,2]})]){
+    const r=await W.default.fetch(req('/api/ai/brain',{method:'PUT',tok:a,body:{playerId:id,base:1,brain:bad}}),env);
+    assert.equal(r.status,422,JSON.stringify(bad).slice(0,60));
+  }
+});
+test('cerveau IA : corps trop gros refusé (413)',async()=>{
+  const W=await import('../cloudflare/worker.mjs');W._resetForTests();
+  const {pair,jwks}=await makeKeys(),env={DB:brainDb(),ALLOWED_ORIGINS:ORIGIN,FIREBASE_PROJECT_ID:'proj',FIREBASE_JWKS:jwks};
+  const tok=await token(pair),big='{"playerId":"player_123456","base":0,"brain":{"v":1,"pad":"'+'a'.repeat(1000000)+'"}}';
+  const r=await W.default.fetch(req('/api/ai/brain',{method:'PUT',tok,body:big}),env);
+  assert.equal(r.status,413);
+});
+
+/* ---- Liaison d'appareils par code à usage unique ---- */
+function linkDb(){
+  const base=brainDb(),orig=base.prepare.bind(base),codes=new Map(),links=new Set();
+  return Object.assign(base,{codes,links,prepare(sql){
+    if(!/link_codes|player_links/.test(sql)||/CREATE TABLE/.test(sql))return orig(sql);
+    let args=[];
+    const w={bind(...a){args=a;return w},
+      async first(){
+        if(/FROM link_codes/.test(sql)){const c=codes.get(args[0]);return c&&c.exp>Date.now()/1000?{player_id:c.player}:null}
+        if(/FROM player_links/.test(sql))return links.has(args[0]+'|'+args[1])?{uid:args[1]}:null;
+        return null},
+      async run(){
+        if(/DELETE FROM link_codes WHERE player_id/.test(sql)){for(const [k,v] of codes)if(v.player===args[0])codes.delete(k);return{meta:{changes:1}}}
+        if(/INSERT INTO link_codes/.test(sql)){codes.set(args[0],{player:args[1],exp:Date.now()/1000+args[2]});return{meta:{changes:1}}}
+        if(/DELETE FROM link_codes WHERE code/.test(sql)){codes.delete(args[0]);return{meta:{changes:1}}}
+        if(/INSERT OR IGNORE INTO player_links/.test(sql)){links.add(args[0]+'|'+args[1]);return{meta:{changes:1}}}
+        return{meta:{changes:0}}}};
+    return w}});
+}
+test('liaison : le code donne à un 2e appareil (autre uid) accès au même joueur, une seule fois',async()=>{
+  const W=await import('../cloudflare/worker.mjs');W._resetForTests();
+  const {pair,jwks}=await makeKeys(),db=linkDb(),env={DB:db,ALLOWED_ORIGINS:ORIGIN,FIREBASE_PROJECT_ID:'proj',FIREBASE_JWKS:jwks};
+  const phone=await token(pair,{sub:'uid-phone'}),pc=await token(pair,{sub:'uid-pc'}),id='player_123456';
+  const call=(path,tok,body,method='POST')=>W.default.fetch(req(path,{method,tok,body}),env);
+  assert.equal((await call('/api/ai/brain',phone,{playerId:id,base:0,brain:goodBrain({simulations:50})},'PUT')).status,200);
+  assert.equal((await call('/api/ai/brain?playerId='+id,pc,undefined,'GET')).status,403,'avant liaison : refusé');
+  const made=await (await call('/api/link/create',phone,{playerId:id})).json();
+  assert.match(made.code,/^[A-Z2-9]{8}$/);
+  assert.equal((await call('/api/link/create',pc,{playerId:id})).status,403,'un autre appareil ne peut pas générer de code');
+  const red=await call('/api/link/redeem',pc,{code:made.code.toLowerCase().replace(/^(.{4})/,'$1-')});
+  assert.equal(red.status,200);assert.equal((await red.json()).playerId,id);
+  const got=await (await call('/api/ai/brain?playerId='+id,pc,undefined,'GET')).json();
+  assert.equal(got.brain.simulations,50,'le PC lit le cerveau du téléphone');
+  assert.equal((await call('/api/link/redeem',await token(pair,{sub:'uid-x'}),{code:made.code})).status,404,'usage unique');
+  assert.equal((await call('/api/ai/brain?playerId='+id,await token(pair,{sub:'uid-x'}),undefined,'GET')).status,403,'un tiers reste exclu');
+});
+test('liaison : code inconnu 404, sans jeton 401, essais limités (429)',async()=>{
+  const W=await import('../cloudflare/worker.mjs');W._resetForTests();
+  const {pair,jwks}=await makeKeys(),env={DB:linkDb(),ALLOWED_ORIGINS:ORIGIN,FIREBASE_PROJECT_ID:'proj',FIREBASE_JWKS:jwks};
+  const tok=await token(pair);
+  assert.equal((await W.default.fetch(req('/api/link/redeem',{method:'POST',body:{code:'AAAAAAAA'}}),env)).status,401);
+  for(let i=0;i<10;i++)assert.equal((await W.default.fetch(req('/api/link/redeem',{method:'POST',tok,body:{code:'AAAAAAAA'}}),env)).status,404);
+  assert.equal((await W.default.fetch(req('/api/link/redeem',{method:'POST',tok,body:{code:'AAAAAAAA'}}),env)).status,429);
+});

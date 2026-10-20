@@ -40,6 +40,27 @@ CREATE TABLE IF NOT EXISTS player_ai (
   updated_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
+-- Cerveau IA synchronisé entre appareils (version = verrou optimiste).
+CREATE TABLE IF NOT EXISTS player_brain (
+  player_id TEXT PRIMARY KEY,
+  brain_json TEXT NOT NULL,
+  version INTEGER NOT NULL DEFAULT 1,
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
+
+-- Liaison d'appareils : uid supplémentaires autorisés pour un playerId, et codes à usage unique (10 min).
+CREATE TABLE IF NOT EXISTS player_links (
+  player_id TEXT NOT NULL,
+  uid TEXT NOT NULL,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  PRIMARY KEY (player_id, uid)
+);
+CREATE TABLE IF NOT EXISTS link_codes (
+  code TEXT PRIMARY KEY,
+  player_id TEXT NOT NULL,
+  exp INTEGER NOT NULL
+);
+
 -- Identité : un playerId est lié au uid Firebase qui l'a réclamé en premier (voir worker.mjs, gate()).
 CREATE TABLE IF NOT EXISTS player_owner (
   player_id TEXT PRIMARY KEY,

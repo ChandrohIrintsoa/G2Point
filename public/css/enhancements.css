@@ -166,3 +166,9 @@ body.board-fs #chatToasts{position:fixed;z-index:10030;top:calc(12px + env(safe-
 .train-box .live-opts{grid-template-columns:repeat(3,minmax(0,1fr))}
 .train-table{display:grid;gap:3px;font:12px ui-monospace,monospace;color:var(--c2)}
 @media(max-width:480px){.train-box .live-opts{grid-template-columns:1fr}}
+
+.ai-sync{margin:.8rem 0;padding:.7rem;border:1px solid var(--line,#8884);border-radius:12px}
+.ai-sync h3{margin:0 0 .3rem;font-size:1rem}
+.ai-sync .demo-actions{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;margin:.4rem 0}
+.ai-sync input{flex:1 1 11rem;min-width:0;padding:.5rem;font:inherit;text-transform:uppercase;letter-spacing:.08em}
+.ai-link-code{font-weight:700;font-size:1.15rem;letter-spacing:.12em}

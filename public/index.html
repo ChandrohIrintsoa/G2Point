@@ -17,7 +17,7 @@
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800&display=swap" media="print" onload="this.media='all'">
 <link rel="stylesheet" href="css/style.css">
-<link rel="stylesheet" href="css/enhancements.css?v=3">
+<link rel="stylesheet" href="css/enhancements.css?v=4">
 </head>
 <body>
 <main>
@@ -163,6 +163,14 @@
     <header class="ai-lab-head"><div><p class="tuto-step">ENTRAÎNEMENT MANUEL ASSISTÉ</p><h2 id="aiLabTitle">Laboratoire de l’IA</h2></div><button id="aiLabClose" type="button" aria-label="Fermer le laboratoire">Fermer</button></header>
     <p class="ai-lab-intro">Compose une position sur le terrain, choisis le plan à travailler, demande une analyse, puis montre à l’IA le coup que tu considères comme la bonne réponse.</p>
     <div id="aiStats" class="ai-stats"></div>
+    <section class="ai-sync" aria-labelledby="aiSyncTitle">
+      <h3 id="aiSyncTitle">Synchroniser mon IA entre appareils</h3>
+      <p id="aiSyncState" class="live-status" aria-live="polite"></p>
+      <p class="ai-lab-intro">Sur l’appareil qui a le plus appris, générez un code. Sur l’autre appareil, saisissez-le : les deux partageront ensuite la même IA (livres, poids, entraînement).</p>
+      <div class="demo-actions"><button type="button" id="aiLinkMake">Générer un code</button><output id="aiLinkCode" class="ai-link-code" aria-live="polite"></output></div>
+      <div class="demo-actions"><input id="aiLinkInput" type="text" inputmode="text" autocapitalize="characters" autocomplete="off" maxlength="9" placeholder="ABCD-EFGH" aria-label="Code de liaison"><button type="button" id="aiLinkUse">Lier cet appareil</button></div>
+      <button type="button" id="aiSyncNow">Synchroniser maintenant</button>
+    </section>
     <section class="ai-training" aria-label="Terrain d’entraînement manuel">
       <div class="ai-training-controls">
         <label for="aiBrush">Action sur le terrain
@@ -213,9 +221,10 @@
 <script defer src="js/firebase-config.js"></script>
 <script defer src="js/engine.js?v=21"></script>
 <script defer src="js/puzzles.js"></script>
-<script defer src="js/trainer.js?v=1"></script>
+<script defer src="js/trainer.js?v=2"></script>
+<script defer src="js/brain.js?v=1"></script>
 <script defer src="js/cloud-config.js"></script>
-<script defer src="js/app.js?v=22"></script>
-<script defer src="js/enhancements.js?v=16"></script>
+<script defer src="js/app.js?v=24"></script>
+<script defer src="js/enhancements.js?v=17"></script>
 </body>
 </html>

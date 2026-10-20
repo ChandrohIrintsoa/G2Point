@@ -77,7 +77,8 @@ L'origine autorisée dans `wrangler.toml` correspond au projet Firebase `g2ppoin
 - Archives de parties rejouées par le moteur (résultat recalculé côté serveur, abandons pris en compte)
 - Pseudo du joueur
 - Progression, ELO, succès et statistiques face-à-face
-- Paramètres d'entraînement individuel de l'IA (poids)
+- Cerveau de l'IA du joueur (poids, population génétique, livres d'ouvertures/motifs, statistiques du tournoi interne) : `player_brain`, une ligne par joueur, ≤ 900 Ko
+- Appareils liés (`player_links`) et codes de liaison à usage unique valables 10 min (`link_codes`)
 - Lien playerId ↔ compte Firebase (uid anonyme) et compteurs de limitation (expirent seuls)
 - Empreinte salée de l'adresse IP (jamais l'IP en clair)
 
@@ -89,11 +90,17 @@ Les messages de discussion ne sont pas envoyés à Cloudflare.
 - `GET /api/ai` (public, mémoire vide)
 - `GET|PUT /api/profile` (jeton requis)
 - `GET|PUT /api/progress` (jeton requis)
-- `GET|PUT /api/ai/player` (jeton requis)
+- `GET|PUT /api/ai/player` (jeton requis ; ancien format, poids seuls)
+- `GET|PUT /api/ai/brain` (jeton requis) : cerveau IA avec verrou optimiste (`base` = version connue ; 409 + état courant si périmée)
+- `POST /api/link/create` (jeton du propriétaire) et `POST /api/link/redeem` (jeton du nouvel appareil, 10 essais/h/IP) : liaison d'appareils
 
 ## Firestore : TTL à activer (une fois)
 
 Le champ `expireAt` ne supprime rien tout seul. Dans la console Firebase → Firestore → TTL, créer une politique sur le champ `expireAt` pour les groupes de collections `games`, `messages` et `lobby`. Les règles refusent déjà les coups et prises de siège sur une partie expirée ; le TTL ne sert qu'à purger les données.
+
+## Synchronisation de l'IA entre appareils
+
+Chaque appareil garde son propre compte Firebase anonyme ; la liaison par code donne à un autre appareil l'accès au même `playerId`. Les tables sont créées automatiquement au premier appel (`ensureTables`) ; `schema.sql` les documente. Aucune action manuelle n'est requise au déploiement. La fusion (public/js/brain.js) est monotone : livres = entrée la plus expérimentée par position, poids/population = IA la plus expérimentée, compteurs = maximum. Une remise à zéro des séries (epoch) est propagée.
 
 ## Limites connues
 

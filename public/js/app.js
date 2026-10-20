@@ -224,7 +224,7 @@ const trainWanted=()=>trainMode!=='off'&&idleBatterySafe&&typeof Worker!=='undef
 function trainEnsure(){
   if(!trainTour)trainTour=new G2Trainer.Tournament(trainCfg(),jget(TRAIN_KEY,null));
   if(!trainWorker){
-    trainWorker=new Worker('js/train-worker.js?v=1');
+    trainWorker=new Worker('js/train-worker.js?v=2');
     trainWorker.onmessage=trainOnMessage;
     trainWorker.onerror=e=>{trainNote='Worker en erreur : '+(e&&e.message||'inconnue');stopIdleTraining()};
   }
@@ -290,7 +290,7 @@ window.G2Train={
   },
   setMode(mode){trainMode=['auto','on','off'].includes(mode)?mode:'auto';try{localStorage.setItem(TRAIN_MODE_KEY,trainMode)}catch(e){}stopIdleTraining();startIdleTraining()},
   setConfig(c){jset(TRAIN_CFG_KEY,{...trainCfg(),...c});if(trainTour)trainTour.cfg={...trainTour.cfg,...trainCfg()}},
-  reset(){stopIdleTraining();trainTour=null;try{localStorage.removeItem(TRAIN_KEY)}catch(e){}startIdleTraining()},
+  reset(){stopIdleTraining();trainTour=null;jset(TRAIN_KEY,{epoch:Date.now()});startIdleTraining();cloudPersistAI()},
   start:startIdleTraining,stop:stopIdleTraining
 };
 function learnFromGame(win,r){
@@ -1016,7 +1016,7 @@ function renderAILab(){
   host.append(restore);
   drawAITrainingBoard();
 }
-function openAILab(){renderAILab();$('aiLab').hidden=false;$('aiTrainStatus').textContent='Made by ChaIr.'}
+function openAILab(){renderAILab();renderSyncState();$('aiLab').hidden=false;$('aiTrainStatus').textContent='Made by ChaIr.'}
 function setAITrainingHint(message){$('aiCoach').textContent=message}
 $('aiBoard').addEventListener('click',e=>{
   const c=$('aiBoard'),r=c.getBoundingClientRect(),px=(e.clientX-r.left)*c.width/r.width,py=(e.clientY-r.top)*c.height/r.height;
@@ -1294,13 +1294,85 @@ async function cloudSyncProgress(P=loadProg()){
   if(!cloudUrl())return;
   try{await cloudRequest('/api/progress','PUT',{playerId:devId(),progress:P})}catch(e){}
 }
-function cloudPersistAI(A){
-  if(!cloudUrl())return;
-  clearTimeout(cloudAiTimer);
-  cloudAiTimer=setTimeout(async()=>{
-    try{await cloudRequest('/api/ai/player','PUT',{playerId:devId(),weights:A.c||A.w,games:A.games||0,wins:A.st&&A.st.w||0})}catch(e){}
-  },1200);
+/* ---- Synchronisation du cerveau IA entre appareils ----
+   Chaque appareil fusionne son état avec celui du cloud (fusion monotone : public/js/brain.js) puis l'écrit avec un
+   verrou optimiste (numéro de version). L'entraînement écrit à chaque partie : on groupe donc les envois (≥ 60 s). */
+const BRAIN_VER_KEY='g2p.brain.ver',BRAIN_PUSH_MS=60000,BRAIN_PULL_MS=300000;
+let brainDirty=false,brainTimer=0,brainBusy=false,brainLast=0,brainNote='',brainVer=0,brainAt=0;
+try{brainVer=+localStorage.getItem(BRAIN_VER_KEY)||0}catch(e){}
+function cloudPersistAI(){
+  if(!cloudUrl()||!window.G2Brain)return;
+  brainDirty=true;
+  if(brainTimer)return;
+  brainTimer=setTimeout(()=>{brainTimer=0;brainSync()},Math.max(2000,BRAIN_PUSH_MS-(Date.now()-brainLast)));
 }
+/* Fusionne `remote` dans la mémoire locale (synchrone : aucune partie d'entraînement ne s'intercale) et retourne le résultat. */
+function brainMergeLocal(remote){
+  const a=loadAI(),local=G2Brain.pack(a,trainTour?trainTour.snapshot():jget(TRAIN_KEY,null)),merged=G2Brain.merge(local,remote);
+  if(!G2Brain.same(merged,local)){
+    jset('g2p.ai',G2Brain.applyTo(a,merged));
+    if(merged.train){if(trainTour)trainTour.restore(merged.train);jset(TRAIN_KEY,merged.train)}
+  }
+  return merged;
+}
+async function brainPut(brain,base){
+  const res=await fetch(cloudUrl()+'/api/ai/brain',{method:'PUT',headers:{'Content-Type':'application/json',...await cloudAuthHeaders()},body:JSON.stringify({playerId:devId(),base,brain})});
+  if(res.status===409)return{conflict:await res.json()};
+  if(!res.ok)throw new Error('Cloudflare '+res.status);
+  return res.json();
+}
+async function brainSync(){
+  if(!cloudUrl()||!window.G2Brain||brainBusy)return;
+  brainBusy=true;brainDirty=false;
+  try{
+    let remote=await cloudRequest('/api/ai/brain?playerId='+encodeURIComponent(devId()))||{brain:null,version:0};
+    for(let i=0;i<4;i++){
+      const merged=brainMergeLocal(remote.brain);
+      if(remote.brain&&G2Brain.same(merged,remote.brain)){brainVer=remote.version;break}
+      const r=await brainPut(merged,remote.version);
+      if(r.ok){brainVer=r.version;break}
+      remote=r.conflict||{brain:null,version:0};
+    }
+    brainLast=brainAt=Date.now();brainNote='';
+    try{localStorage.setItem(BRAIN_VER_KEY,String(brainVer))}catch(e){}
+  }catch(e){
+    brainNote='Synchronisation impossible : '+(e&&e.message||'erreur');brainDirty=true;
+    clearTimeout(brainTimer);brainTimer=setTimeout(()=>{brainTimer=0;brainSync()},BRAIN_PULL_MS);
+  }finally{brainBusy=false}
+}
+window.G2Sync={now:brainSync,status:()=>({enabled:!!cloudUrl(),busy:brainBusy,dirty:brainDirty,version:brainVer,last:brainAt,note:brainNote})};
+setInterval(()=>{if(brainDirty||trainRunning)brainSync()},BRAIN_PULL_MS);
+async function linkCall(path,body){
+  const res=await fetch(cloudUrl()+path,{method:'POST',headers:{'Content-Type':'application/json',...await cloudAuthHeaders()},body:JSON.stringify(body)});
+  const data=await res.json().catch(()=>({}));
+  if(!res.ok)throw new Error(data.error||('Cloudflare '+res.status));
+  return data;
+}
+function renderSyncState(){
+  const el=$('aiSyncState');if(!el)return;
+  const sy=window.G2Sync&&window.G2Sync.status();
+  el.textContent=!sy||!sy.enabled?'Cloud non configuré : l’IA évolue sur cet appareil uniquement.':sy.note?sy.note:sy.last?'Synchronisée · version '+sy.version+' · il y a '+Math.max(0,Math.round((Date.now()-sy.last)/60000))+' min':'Pas encore synchronisée.';
+}
+$('aiLinkMake').onclick=async()=>{
+  const out=$('aiLinkCode');out.textContent='…';
+  try{await brainSync();const r=await linkCall('/api/link/create',{playerId:devId()});out.textContent=r.code.slice(0,4)+'-'+r.code.slice(4)+' (valable 10 min)'}
+  catch(e){out.textContent='Impossible : '+(e&&e.message||'erreur')}
+};
+$('aiLinkUse').onclick=async()=>{
+  const code=$('aiLinkInput').value;if(!code.trim())return;
+  if(!confirm('Lier cet appareil ? Sa progression sera fusionnée avec celle du joueur du code (les statistiques et l’IA les plus avancées sont conservées).'))return;
+  const el=$('aiSyncState');el.textContent='Liaison…';
+  try{
+    const r=await linkCall('/api/link/redeem',{code});
+    try{localStorage.setItem('g2p.pid',r.playerId)}catch(e){}
+    $('aiLinkInput').value='';
+    /* La progression (ELO, succès) est écrasée en bloc côté serveur : à la liaison, celle du joueur lié prévaut, la locale est sauvegardée. */
+    try{const pg=await cloudRequest('/api/progress?playerId='+encodeURIComponent(r.playerId));if(pg&&pg.progress){const old=localStorage.getItem('g2p.prog');if(old)localStorage.setItem('g2p.prog.bak',old);jset('g2p.prog',pg.progress)}}catch(e){}
+    await cloudBootstrap();await brainSync();renderSyncState();try{renderAILab()}catch(e){}
+    el.textContent='Appareil lié. '+el.textContent;
+  }catch(e){el.textContent='Liaison impossible : '+(e&&e.message||'erreur')}
+};
+$('aiSyncNow').onclick=async()=>{await brainSync();renderSyncState();try{renderAILab()}catch(e){}};
 async function cloudBootstrap(){
   if(!cloudUrl())return;
   const id=encodeURIComponent(devId());
@@ -1324,7 +1396,7 @@ async function cloudBootstrap(){
     if(!rawAI&&hasCloudWeights){
       A.w=T.weights.slice();A.c=T.weights.slice();A.pop=freshPopulation(A.w);A.active=0;jset('g2p.ai',A);
     }
-    cloudPersistAI(A);
+    await brainSync();
     renderProg();
   }catch(e){console.warn('[G2Point] Synchronisation initiale impossible.',e)}
 }
@@ -1341,7 +1413,7 @@ async function cloudPull(force){
   }catch(e){console.warn('[G2Point] Lecture de la mémoire IA distante impossible.',e)}
 }
 setTimeout(()=>{cloudFlush();cloudPull(true);cloudBootstrap()},2500);
-document.addEventListener('visibilitychange',()=>{if(!document.hidden){if(trainMode!=='on')stopIdleTraining();cloudFlush();cloudPull()}else startIdleTraining()});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden){if(trainMode!=='on')stopIdleTraining();cloudFlush();cloudPull();brainSync()}else{startIdleTraining();if(brainDirty)brainSync()}});
 startIdleTraining(); /* se met en route seul selon le mode (auto = onglet caché ; on = en continu) */
 
 /* ===== Initialisation des nouveautés ===== */
