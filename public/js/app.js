@@ -322,7 +322,7 @@ function record(){
   const r=mine<0?'':w.includes(mine)?(w.length>1?'draw':'win'):'loss';
   const h=loadHist();h.unshift({t:Date.now(),k:daily?'daily':ai?'ai':mode,w:W,h:H,sc:S.sc.slice(),r,d:daily||undefined});
   try{localStorage.setItem('g2p.hist',JSON.stringify(h.slice(0,30)))}catch(e){}
-  learnFromGame(w,r);cloudQueue(r);progress(r,mine);renderHist();renderProg();track('game_end',{mode:daily?'daily':ai?'ai':mode,players:N,result:r||'none'});
+  learnFromGame(w,r);cloudQueue(r);progress(r,mine);cloudPersistAI(true);brainSync();renderHist();renderProg();track('game_end',{mode:daily?'daily':ai?'ai':mode,players:N,result:r||'none'});
 }
 function renderHist(){
   const h=loadHist(),box=$('hist');if(!h.length)return;
@@ -1292,14 +1292,32 @@ async function cloudSyncProfile(){
   if(!cloudUrl())return;
   try{await cloudRequest('/api/profile','PUT',{playerId:devId(),nickname:getNickname()})}catch(e){}
 }
+function mergeProgress(local,remote){
+  const a=local&&typeof local==='object'?local:{},b=remote&&typeof remote==='object'?remote:{};
+  const elo={...(b.elo||{})};
+  for(const [k,v] of Object.entries(a.elo||{}))elo[k]=Math.max(Number(elo[k])||0,Number(v)||0);
+  const ach={...(b.ach||{})};
+  for(const [k,v] of Object.entries(a.ach||{}))if(v)ach[k]=ach[k]?Math.min(Number(ach[k])||v,Number(v)||ach[k]):v;
+  const h2h={...(b.h2h||{})};
+  for(const [id,v] of Object.entries(a.h2h||{})){
+    const old=h2h[id]||{n:'',w:0,l:0,d:0};
+    h2h[id]={n:v.n||old.n||'',w:Math.max(Number(old.w)||0,Number(v.w)||0),l:Math.max(Number(old.l)||0,Number(v.l)||0),d:Math.max(Number(old.d)||0,Number(v.d)||0)};
+  }
+  return{streak:Math.max(Number(a.streak)||0,Number(b.streak)||0),best:Math.max(Number(a.best)||0,Number(b.best)||0,Number(a.streak)||0,Number(b.streak)||0),elo,ach,h2h};
+}
 async function cloudSyncProgress(P=loadProg()){
   if(!cloudUrl())return;
-  try{await cloudRequest('/api/progress','PUT',{playerId:devId(),progress:P})}catch(e){}
+  try{
+    const remote=await cloudRequest('/api/progress?playerId='+encodeURIComponent(devId()));
+    const merged=mergeProgress(P,remote&&remote.progress);
+    jset('g2p.prog',merged);
+    await cloudRequest('/api/progress','PUT',{playerId:devId(),progress:merged});
+  }catch(e){console.warn('[G2Point] Synchronisation de progression différée.',e)}
 }
 /* ---- Synchronisation du cerveau IA entre appareils ----
    Chaque appareil fusionne son état avec celui du cloud (fusion monotone : public/js/brain.js) puis l'écrit avec un
    verrou optimiste (numéro de version). L'entraînement écrit à chaque partie : on groupe donc les envois (≥ 60 s). */
-const BRAIN_VER_KEY='g2p.brain.ver',BRAIN_PUSH_MS=60000,BRAIN_PULL_MS=300000;
+const BRAIN_VER_KEY='g2p.brain.ver',BRAIN_PUSH_MS=15000,BRAIN_PULL_MS=60000;
 let brainDirty=false,brainTimer=0,brainBusy=false,brainLast=0,brainNote='',brainVer=0,brainAt=0;
 try{brainVer=+localStorage.getItem(BRAIN_VER_KEY)||0}catch(e){}
 function cloudPersistAI(urgent){
@@ -1346,7 +1364,7 @@ async function brainSync(){
   }finally{brainBusy=false}
 }
 window.G2Sync={now:brainSync,status:()=>({enabled:!!cloudUrl(),busy:brainBusy,dirty:brainDirty,version:brainVer,last:brainAt,note:brainNote})};
-setInterval(()=>{if(brainDirty||trainRunning)brainSync()},BRAIN_PULL_MS);
+setInterval(()=>{brainSync()},BRAIN_PULL_MS); /* récupère aussi l'apprentissage ajouté par un autre appareil */
 async function linkCall(path,body){
   const res=await fetch(cloudUrl()+path,{method:'POST',headers:{'Content-Type':'application/json',...await cloudAuthHeaders()},body:JSON.stringify(body)});
   const data=await res.json().catch(()=>({}));
@@ -1371,8 +1389,13 @@ $('aiLinkUse').onclick=async()=>{
     const r=await linkCall('/api/link/redeem',{code});
     try{localStorage.setItem('g2p.pid',r.playerId)}catch(e){}
     $('aiLinkInput').value='';
-    /* La progression (ELO, succès) est écrasée en bloc côté serveur : à la liaison, celle du joueur lié prévaut, la locale est sauvegardée. */
-    try{const pg=await cloudRequest('/api/progress?playerId='+encodeURIComponent(r.playerId));if(pg&&pg.progress){const old=localStorage.getItem('g2p.prog');if(old)localStorage.setItem('g2p.prog.bak',old);jset('g2p.prog',pg.progress)}}catch(e){}
+    /* Fusionne la progression locale et celle du compte lié sans écraser les meilleurs résultats/succès. */
+    try{
+      const old=localStorage.getItem('g2p.prog');if(old)localStorage.setItem('g2p.prog.bak',old);
+      const pg=await cloudRequest('/api/progress?playerId='+encodeURIComponent(r.playerId));
+      jset('g2p.prog',mergeProgress(loadProg(),pg&&pg.progress));
+      await cloudSyncProgress(loadProg());
+    }catch(e){console.warn('[G2Point] Fusion de progression lors de la liaison différée.',e)}
     await cloudBootstrap();await brainSync();renderSyncState();try{renderAILab()}catch(e){}
     el.textContent='Appareil lié. '+el.textContent;
   }catch(e){el.textContent='Liaison impossible : '+(e&&e.message||'erreur')}
@@ -1390,10 +1413,8 @@ async function cloudBootstrap(){
     if(pr&&pr.profile&&!localStorage.getItem('g2p.nickname')){
       $('nickname').value=pr.profile.nickname||'';
     }else await cloudSyncProfile();
-    if(pg&&pg.progress){
-      if(!localStorage.getItem('g2p.prog'))jset('g2p.prog',pg.progress);
-      else await cloudSyncProgress();
-    }else await cloudSyncProgress();
+    if(pg&&pg.progress)jset('g2p.prog',mergeProgress(loadProg(),pg.progress));
+    await cloudSyncProgress(loadProg());
     const A=loadAI(),T=aiRemote&&aiRemote.training,rawAI=jget('g2p.ai',null);
     const hasCloudWeights=T&&Array.isArray(T.weights)&&T.weights.length===6&&T.weights.every(Number.isFinite);
     // Les poids distants ne sont appliqués qu'à une première installation sans état local.
