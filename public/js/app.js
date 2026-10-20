@@ -821,7 +821,7 @@ const validConfig=!!(FIREBASE_CONFIG.apiKey&&FIREBASE_CONFIG.authDomain&&FIREBAS
   if(window.firebase&&validConfig){
   try{
     firebase.initializeApp(FIREBASE_CONFIG);db=firebase.firestore();auth=firebase.auth();
-    try{db.settings({experimentalAutoDetectLongPolling:true})}catch(e){console.warn('Détection de transport Firestore indisponible',e)}
+    try{db.settings({experimentalAutoDetectLongPolling:true},{merge:true})}catch(e){console.warn('Détection de transport Firestore indisponible',e)}
     try{db.enablePersistence({synchronizeTabs:true}).catch(()=>{})}catch(e){} /* cache hors-ligne : résiste aux coupures réseau */
     try{an=firebase.analytics()}catch(e){} /* mesure de rétention (measurementId déjà configuré) */
     auth.onAuthStateChanged(user=>{
