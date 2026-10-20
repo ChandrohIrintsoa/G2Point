@@ -33,13 +33,13 @@ class Tournament{
       const p=this.players[i],q=this.players[j];
       if(p.lvl!==q.lvl||p.learner!==q.learner)this.pairs.push([p.id,q.id]); /* niveaux différents, ou apprenante contre son propre niveau */
     }
-    this.st={games:0,incomplete:0,cursor:0,pauses:0,pauseUntil:0,lastPause:null,stats:{},streaks:{}};
+    this.st={epoch:0,games:0,incomplete:0,cursor:0,pauses:0,pauseUntil:0,lastPause:null,stats:{},streaks:{}};
     for(const p of this.players){this.st.stats[p.id]={w:0,l:0,d:0};this.st.streaks[p.id]=0}
     if(saved&&typeof saved==='object')this.restore(saved);
   }
   restore(saved){
     const st=this.st;
-    for(const k of ['games','incomplete','cursor','pauses','pauseUntil'])if(Number.isFinite(saved[k])&&saved[k]>=0)st[k]=saved[k];
+    for(const k of ['epoch','games','incomplete','cursor','pauses','pauseUntil'])if(Number.isFinite(saved[k])&&saved[k]>=0)st[k]=saved[k];
     if(saved.lastPause&&typeof saved.lastPause==='object')st.lastPause=saved.lastPause;
     for(const p of this.players){
       const x=saved.stats&&saved.stats[p.id];

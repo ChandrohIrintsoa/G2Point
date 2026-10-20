@@ -104,6 +104,9 @@ async function ensureTables(db){
   if(tablesReady)return;
   await db.prepare('CREATE TABLE IF NOT EXISTS player_owner(player_id TEXT PRIMARY KEY, uid TEXT NOT NULL, created_at INTEGER NOT NULL DEFAULT (unixepoch()))').run();
   await db.prepare('CREATE TABLE IF NOT EXISTS rate_limits(k TEXT PRIMARY KEY, c INTEGER NOT NULL, exp INTEGER NOT NULL)').run();
+  await db.prepare('CREATE TABLE IF NOT EXISTS player_brain(player_id TEXT PRIMARY KEY, brain_json TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1, updated_at INTEGER NOT NULL DEFAULT (unixepoch()))').run();
+  await db.prepare('CREATE TABLE IF NOT EXISTS player_links(player_id TEXT NOT NULL, uid TEXT NOT NULL, created_at INTEGER NOT NULL DEFAULT (unixepoch()), PRIMARY KEY(player_id,uid))').run();
+  await db.prepare('CREATE TABLE IF NOT EXISTS link_codes(code TEXT PRIMARY KEY, player_id TEXT NOT NULL, exp INTEGER NOT NULL)').run();
   tablesReady=true;
 }
 export const _resetForTests=()=>{tablesReady=false;jwksCache={at:0,keys:null}};
@@ -112,7 +115,10 @@ async function bindOwner(db,playerId,uid){
   await ensureTables(db);
   let row=await db.prepare('SELECT uid FROM player_owner WHERE player_id=?').bind(playerId).first();
   if(!row){await db.prepare('INSERT OR IGNORE INTO player_owner(player_id,uid) VALUES(?,?)').bind(playerId,uid).run();row=await db.prepare('SELECT uid FROM player_owner WHERE player_id=?').bind(playerId).first()}
-  return !!row&&row.uid===uid;
+  if(row&&row.uid===uid)return true;
+  /* Appareil lié par code (voir handleLink) : il agit pour le même joueur avec son propre uid. */
+  const link=await db.prepare('SELECT uid FROM player_links WHERE player_id=? AND uid=?').bind(playerId,uid).first();
+  return !!link;
 }
 /* Portail des routes privées. Retourne une Response d'erreur, ou null si l'accès est autorisé.
    Sans FIREBASE_PROJECT_ID (installation ancienne), le comportement historique est conservé. */
@@ -203,6 +209,92 @@ async function handlePlayerAi(req,env,h){
   return json({error:'méthode refusée'},405,h);
 }
 
+/* ---- Cerveau IA synchronisé entre appareils (livres, poids, population, stats du tournoi) ----
+   Le serveur ne fusionne pas : il stocke le dernier état avec un numéro de version et refuse (409) une écriture
+   basée sur une version périmée. Le client récupère alors l'état courant, fusionne (voir public/js/brain.js) et réessaie. */
+const BRAIN_MAX=900000,BRAIN_BOOKS=['book','antiBook','sbook','antiSBook'];
+const isW6=w=>Array.isArray(w)&&w.length===6&&w.every(v=>Number.isFinite(v)&&v>=0&&v<=100);
+export function validBrain(b){
+  if(!b||typeof b!=='object'||Array.isArray(b)||b.v!==1)return false;
+  if(b.w!=null&&!isW6(b.w))return false;
+  if(b.c!=null&&!isW6(b.c))return false;
+  if(b.pop!=null&&!(Array.isArray(b.pop)&&b.pop.length===8&&b.pop.every(x=>x&&isW6(x.w))))return false;
+  for(const k of BRAIN_BOOKS){
+    const bk=b[k];if(bk==null)continue;
+    if(typeof bk!=='object'||Array.isArray(bk))return false;
+    const keys=Object.keys(bk);if(keys.length>2500)return false;
+    for(const key of keys){const e=bk[key];if(key.length>200||!Array.isArray(e)||e.length!==4||e.some(v=>!Number.isFinite(v)))return false}
+  }
+  for(const k of ['games','simulations','manualLessons']){if(b[k]!=null&&!(Number.isFinite(b[k])&&b[k]>=0&&b[k]<=1e9))return false}
+  if(b.train!=null&&(typeof b.train!=='object'||Array.isArray(b.train)||JSON.stringify(b.train).length>20000))return false;
+  return true;
+}
+async function handleBrain(req,env,h){
+  const db=env.DB;
+  if(!db)return json({error:'base indisponible'},503,h);
+  await ensureTables(db);
+  if(req.method==='GET'){
+    const id=getPlayerId(req,new URL(req.url));
+    if(!validPlayerId(id))return json({error:'identifiant invalide'},400,h);
+    {const denied=await gate(req,env,h,id);if(denied)return denied}
+    const row=await db.prepare('SELECT brain_json,version,updated_at FROM player_brain WHERE player_id=?').bind(id).first();
+    let brain=null;try{brain=row?JSON.parse(row.brain_json):null}catch{}
+    return json({brain,version:row?row.version:0,updatedAt:row?row.updated_at:0},200,{...h,'Cache-Control':'no-store'});
+  }
+  if(req.method==='PUT'){
+    const p=await readJson(req,BRAIN_MAX);if(p.error)return json({error:'requête invalide'},p.error,h);
+    const b=p.value||{};
+    if(!validPlayerId(b.playerId)||!validBrain(b.brain))return json({error:'cerveau IA invalide'},422,h);
+    const base=Math.floor(Number(b.base));if(!Number.isFinite(base)||base<0)return json({error:'version de base invalide'},422,h);
+    {const denied=await gate(req,env,h,b.playerId);if(denied)return denied}
+    const text=JSON.stringify(b.brain);if(text.length>BRAIN_MAX)return json({error:'trop gros'},413,h);
+    let res;
+    if(base===0)res=await db.prepare('INSERT OR IGNORE INTO player_brain(player_id,brain_json,version,updated_at) VALUES(?,?,1,unixepoch())').bind(b.playerId,text).run();
+    else res=await db.prepare('UPDATE player_brain SET brain_json=?,version=version+1,updated_at=unixepoch() WHERE player_id=? AND version=?').bind(text,b.playerId,base).run();
+    if(!res||!res.meta||res.meta.changes!==1){
+      const row=await db.prepare('SELECT brain_json,version FROM player_brain WHERE player_id=?').bind(b.playerId).first();
+      let brain=null;try{brain=row?JSON.parse(row.brain_json):null}catch{}
+      return json({conflict:true,brain,version:row?row.version:0},409,h);
+    }
+    return json({ok:true,version:base+1},200,h);
+  }
+  return json({error:'méthode refusée'},405,h);
+}
+
+/* ---- Liaison d'appareils : un code à usage unique (10 min) donne à un autre appareil l'accès au même playerId ----
+   Chaque appareil garde son propre uid Firebase anonyme ; le serveur mémorise les uid autorisés pour ce joueur. */
+const LINK_ALPHABET='ABCDEFGHJKMNPQRSTUVWXYZ23456789',LINK_TTL=600;
+const newLinkCode=()=>{const r=new Uint8Array(8);crypto.getRandomValues(r);return Array.from(r,v=>LINK_ALPHABET[v%LINK_ALPHABET.length]).join('')};
+async function handleLink(req,env,h,action){
+  const db=env.DB;
+  if(req.method!=='POST')return json({error:'méthode refusée'},405,h);
+  if(!db||!env.FIREBASE_PROJECT_ID)return json({error:'liaison indisponible sur ce serveur'},503,h);
+  await ensureTables(db);
+  const p=await readJson(req,2048);if(p.error)return json({error:'requête invalide'},p.error,h);
+  const b=p.value||{};
+  if(action==='create'){
+    if(!validPlayerId(b.playerId))return json({error:'identifiant invalide'},400,h);
+    {const denied=await gate(req,env,h,b.playerId);if(denied)return denied}
+    const code=newLinkCode();
+    await db.prepare('DELETE FROM link_codes WHERE player_id=? OR exp<unixepoch()').bind(b.playerId).run();
+    await db.prepare('INSERT INTO link_codes(code,player_id,exp) VALUES(?,?,unixepoch()+?)').bind(code,b.playerId,LINK_TTL).run();
+    return json({code,expiresIn:LINK_TTL},200,{...h,'Cache-Control':'no-store'});
+  }
+  /* redeem : l'appareil qui saisit le code s'identifie par son jeton, pas par un playerId qu'il ne possède pas encore */
+  const m=/^Bearer (.+)$/.exec(req.headers.get('Authorization')||'');
+  const who=m?await verifyFirebaseToken(m[1],env):null;
+  if(!who)return json({error:'authentification requise'},401,{...h,'WWW-Authenticate':'Bearer'});
+  const ip=await ipHash(req,env);
+  if(!(await rateOk(db,'l:'+ip,10,3600)))return json({error:'trop de tentatives, réessayez plus tard'},429,{...h,'Retry-After':'3600'});
+  const code=String(b.code||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+  if(code.length!==8)return json({error:'code invalide ou expiré'},404,h);
+  const row=await db.prepare('SELECT player_id FROM link_codes WHERE code=? AND exp>unixepoch()').bind(code).first();
+  if(!row)return json({error:'code invalide ou expiré'},404,h);
+  await db.prepare('DELETE FROM link_codes WHERE code=?').bind(code).run(); /* usage unique */
+  await db.prepare('INSERT OR IGNORE INTO player_links(player_id,uid) VALUES(?,?)').bind(row.player_id,who.uid).run();
+  return json({ok:true,playerId:row.player_id},200,{...h,'Cache-Control':'no-store'});
+}
+
 export async function handleArchive(req,env,h){
   const rb=await readBody(req,MAX_BODY);
   if(rb.error)return json({error:'trop gros'},rb.error,h);
@@ -237,13 +329,16 @@ export default{
     try{
       if(url.pathname==='/api/archive'&&req.method==='POST')return await handleArchive(req,env,h);
       if(url.pathname==='/api/ai'&&req.method==='GET')return await handleAi(env,h);
-      if(/^\/api\/(profile|progress|ai\/player)$/.test(url.pathname)&&env.DB){
+      if(/^\/api\/(profile|progress|ai\/player|ai\/brain)$/.test(url.pathname)&&env.DB){
         const write=req.method!=='GET',ip=await ipHash(req,env);
         if(!(await rateOk(env.DB,(write?'w:':'r:')+ip,write?30:120,60)))return json({error:'trop de requêtes, réessayez dans une minute',requestId},429,{...h,'Retry-After':'60'});
       }
       if(url.pathname==='/api/profile')return await handleProfile(req,env,h);
       if(url.pathname==='/api/progress')return await handleProgress(req,env,h);
       if(url.pathname==='/api/ai/player')return await handlePlayerAi(req,env,h);
+      if(url.pathname==='/api/ai/brain')return await handleBrain(req,env,h);
+      if(url.pathname==='/api/link/create')return await handleLink(req,env,h,'create');
+      if(url.pathname==='/api/link/redeem')return await handleLink(req,env,h,'redeem');
       return json({error:'introuvable'},404,h);
     }catch(e){
       console.error('[G2Point Worker]',{requestId,method:req.method,path:url.pathname,error:e&&e.message||String(e),stack:e&&e.stack||null});

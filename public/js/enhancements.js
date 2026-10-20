@@ -38,7 +38,8 @@ trainBox.innerHTML='<h3>Entraînement continu</h3>'
  +'<label>Pause après 100 victoires<select id="trPause"><option value="5">5 min</option><option value="15">15 min</option><option value="30">30 min</option><option value="60">1 h</option><option value="180">3 h</option></select></label>'
  +'<label>Série de victoires<select id="trStreak"><option value="10">10</option><option value="50">50</option><option value="100">100</option><option value="250">250</option></select></label></div>'
  +'<p id="trStatus" class="live-status" aria-live="polite"></p><div id="trTable" class="train-table"></div>'
- +'<div class="demo-actions"><button type="button" id="trReset">Remettre les séries à zéro</button></div>';
+ +'<p id="trSync" class="live-status" aria-live="polite"></p>'
+ +'<div class="demo-actions"><button type="button" id="trSyncNow">Synchroniser maintenant</button><button type="button" id="trReset">Remettre les séries à zéro</button></div>';
 monitor.querySelector('.observer-stats').insertAdjacentElement('afterend',trainBox);
 const trainApi=()=>window.G2Train;
 function renderTrain(){
@@ -48,12 +49,15 @@ function renderTrain(){
   const left=st.paused?Math.max(0,Math.ceil((st.pauseUntil-Date.now())/60000)):0;
   $('trStatus').textContent=(st.running?(st.paused?'En pause — reprise dans '+left+' min':'En cours'):'À l’arrêt')+' · '+st.games+' parties jouées'+(st.incomplete?' ('+st.incomplete+' interrompues)':'')+' · '+st.pauses+' pause(s)'+(st.note&&st.running?' · '+st.note:'')
     +(st.lastPause?' · dernière série : '+st.lastPause.name+' ('+st.lastPause.streak+')':'');
+  const sy=window.G2Sync&&window.G2Sync.status();
+  $('trSync').textContent=!sy?'':!sy.enabled?'Cloud non configuré : l’IA évolue sur cet appareil uniquement.':sy.note?sy.note:sy.last?'Cerveau IA synchronisé entre vos appareils · version '+sy.version+' · il y a '+Math.max(0,Math.round((Date.now()-sy.last)/60000))+' min'+(sy.dirty?' · modifications en attente':''):'Synchronisation en attente…';
   const t=$('trTable');t.replaceChildren();
   for(const p of st.players){const row=document.createElement('div');row.textContent=p.name+' : '+p.w+' V · '+p.l+' D · '+p.d+' N · série '+p.streak+' / '+st.cfg.streakLimit;t.append(row)}
 }
 $('trMode').onchange=()=>{trainApi()&&trainApi().setMode($('trMode').value);renderTrain()};
 $('trPause').onchange=()=>{trainApi()&&trainApi().setConfig({pauseMin:+$('trPause').value})};
 $('trStreak').onchange=()=>{trainApi()&&trainApi().setConfig({streakLimit:+$('trStreak').value})};
+$('trSyncNow').onclick=()=>{if(window.G2Sync){window.G2Sync.now().then(renderTrain);renderTrain()}};
 $('trReset').onclick=()=>{if(confirm('Remettre à zéro les séries et statistiques de l’entraînement ?')){trainApi()&&trainApi().reset();renderTrain()}};
 $('observerClose').onclick=()=>monitor.hidden=true;
 $('observerClear').onclick=()=>$('observerLog').replaceChildren();
