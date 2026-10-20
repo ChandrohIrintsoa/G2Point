@@ -1292,7 +1292,7 @@ async function cloudSyncProfile(){
   if(!cloudUrl())return;
   try{await cloudRequest('/api/profile','PUT',{playerId:devId(),nickname:getNickname()})}catch(e){}
 }
-async function mergeProgress(local,remote){
+function mergeProgress(local,remote){
   const a=local&&typeof local==='object'?local:{},b=remote&&typeof remote==='object'?remote:{};
   const elo={...(b.elo||{})};
   for(const [k,v] of Object.entries(a.elo||{}))elo[k]=Math.max(Number(elo[k])||0,Number(v)||0);
