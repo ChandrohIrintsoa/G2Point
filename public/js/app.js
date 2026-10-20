@@ -184,7 +184,9 @@ function saveAI(a){
   a.opponent={...AIDEF().opponent,...(a.opponent||{})};a.log=(a.log||[]).slice(-AI_LOG_MAX);
   const trim=book=>{const ks=Object.keys(book||{});if(ks.length>AI_BOOK_MAX){ks.sort((p,q)=>(book[q][0]||0)-(book[p][0]||0));const nb={};ks.slice(0,AI_BOOK_KEEP).forEach(k=>nb[k]=book[k]);return nb}return book||{}};
   a.book=trim(a.book);a.antiBook=trim(a.antiBook);a.sbook=trim(a.sbook);a.antiSBook=trim(a.antiSBook);
-  jset('g2p.ai',a);cloudPersistAI(a);
+  /* Nouveau motif maîtrisé : synchronisation immédiate au lieu d'attendre l'envoi groupé. */
+  const mastered=window.G2Brain?G2Brain.masteredCount(a):0,unlocked=mastered>(a.mastered|0);a.mastered=mastered;
+  jset('g2p.ai',a);cloudPersistAI(unlocked);
 }
 function aiPick(){aiP=daily?null:(()=>{const a=loadAI(),candidate=a.pop[a.active];return{w:candidate&&candidate.w||a.w,book:a.book,antiBook:a.antiBook,antiSBook:a.antiSBook,sbook:a.sbook,opponent:a.opponent,lvl}})()}
 
@@ -1300,11 +1302,14 @@ async function cloudSyncProgress(P=loadProg()){
 const BRAIN_VER_KEY='g2p.brain.ver',BRAIN_PUSH_MS=60000,BRAIN_PULL_MS=300000;
 let brainDirty=false,brainTimer=0,brainBusy=false,brainLast=0,brainNote='',brainVer=0,brainAt=0;
 try{brainVer=+localStorage.getItem(BRAIN_VER_KEY)||0}catch(e){}
-function cloudPersistAI(){
+function cloudPersistAI(urgent){
   if(!cloudUrl()||!window.G2Brain)return;
   brainDirty=true;
-  if(brainTimer)return;
-  brainTimer=setTimeout(()=>{brainTimer=0;brainSync()},Math.max(2000,BRAIN_PUSH_MS-(Date.now()-brainLast)));
+  if(brainTimer&&!urgent)return;
+  clearTimeout(brainTimer);
+  /* urgent (motif maîtrisé) : ~2 s, au plus un envoi toutes les 10 s ; sinon envoi groupé toutes les 60 s */
+  const wait=urgent?Math.max(2000,10000-(Date.now()-brainLast)):Math.max(2000,BRAIN_PUSH_MS-(Date.now()-brainLast));
+  brainTimer=setTimeout(()=>{brainTimer=0;brainSync()},wait);
 }
 /* Fusionne `remote` dans la mémoire locale (synchrone : aucune partie d'entraînement ne s'intercale) et retourne le résultat. */
 function brainMergeLocal(remote){

@@ -33,6 +33,15 @@ function mergeBook(a,b){
   }
   return out;
 }
+/* Un motif est « maîtrisé » quand l'IA l'a assez rencontré (≥ 6 fois), le gagne presque toujours (≥ 80 %) et en tire un gain positif.
+   Passer ce seuil déclenche une synchronisation immédiate : un savoir acquis ne reste pas isolé sur un appareil. */
+const MASTER_MIN=6,MASTER_WIN=.8,MASTER_GAIN=.5;
+const isMastered=e=>Array.isArray(e)&&e[0]>=MASTER_MIN&&e[2]/e[0]>=MASTER_WIN&&e[1]/e[0]>=MASTER_GAIN;
+function masteredCount(ai){
+  let n=0;ai=ai||{};
+  for(const k of BOOKS){const b=ai[k];if(b&&typeof b==='object')for(const key of Object.keys(b))if(isMastered(b[key]))n++}
+  return n;
+}
 /* Extrait la partie synchronisable d'une mémoire IA locale (sans le journal de coups, local à l'appareil). */
 function pack(ai,train,now=Date.now()){
   ai=ai||{};
@@ -97,5 +106,5 @@ function fingerprint(b){
   return f.join('|');
 }
 const same=(a,b)=>fingerprint(a)===fingerprint(b);
-return{VERSION,pack,merge,mergeBook,mergeTrain,applyTo,same,fingerprint,cleanBook,cleanTrain,experience,MAX_BOOK};
+return{VERSION,isMastered,masteredCount,MASTER_MIN,pack,merge,mergeBook,mergeTrain,applyTo,same,fingerprint,cleanBook,cleanTrain,experience,MAX_BOOK};
 });
