@@ -954,7 +954,7 @@ function progress(r,mine){
     unlock(P,'daily');const dd=jget('g2p.dd',[]);
     if(!dd.includes(daily)){dd.push(daily);jset('g2p.dd',dd);for(const t of THEMES)if(t.need==dd.length&&t.need>0)newAch.push('🎨 Thème « '+t.name+' » débloqué')}
   }
-  jset('g2p.prog',P);cloudSyncProgress(P);
+  P.at=Date.now();jset('g2p.prog',P);cloudSyncProgress(P);
   if(newAch.length)note(newAch.join(' · '));
 }
 function renderProg(){
@@ -1292,25 +1292,14 @@ async function cloudSyncProfile(){
   if(!cloudUrl())return;
   try{await cloudRequest('/api/profile','PUT',{playerId:devId(),nickname:getNickname()})}catch(e){}
 }
-function mergeProgress(local,remote){
-  const a=local&&typeof local==='object'?local:{},b=remote&&typeof remote==='object'?remote:{};
-  const elo={...(b.elo||{})};
-  for(const [k,v] of Object.entries(a.elo||{}))elo[k]=Math.max(Number(elo[k])||0,Number(v)||0);
-  const ach={...(b.ach||{})};
-  for(const [k,v] of Object.entries(a.ach||{}))if(v)ach[k]=ach[k]?Math.min(Number(ach[k])||v,Number(v)||ach[k]):v;
-  const h2h={...(b.h2h||{})};
-  for(const [id,v] of Object.entries(a.h2h||{})){
-    const old=h2h[id]||{n:'',w:0,l:0,d:0};
-    h2h[id]={n:v.n||old.n||'',w:Math.max(Number(old.w)||0,Number(v.w)||0),l:Math.max(Number(old.l)||0,Number(v.l)||0),d:Math.max(Number(old.d)||0,Number(v.d)||0)};
-  }
-  return{streak:Math.max(Number(a.streak)||0,Number(b.streak)||0),best:Math.max(Number(a.best)||0,Number(b.best)||0,Number(a.streak)||0,Number(b.streak)||0),elo,ach,h2h};
-}
+const mergeProgress=(l,r)=>G2Brain.mergeProgress(l,r);
 async function cloudSyncProgress(P=loadProg()){
   if(!cloudUrl())return;
   try{
     const remote=await cloudRequest('/api/progress?playerId='+encodeURIComponent(devId()));
     const merged=mergeProgress(P,remote&&remote.progress);
     jset('g2p.prog',merged);
+    if(remote&&remote.progress&&G2Brain.canon(mergeProgress(remote.progress,remote.progress))===G2Brain.canon(merged))return; /* rien de neuf à écrire */
     await cloudRequest('/api/progress','PUT',{playerId:devId(),progress:merged});
   }catch(e){console.warn('[G2Point] Synchronisation de progression différée.',e)}
 }
@@ -1364,7 +1353,7 @@ async function brainSync(){
   }finally{brainBusy=false}
 }
 window.G2Sync={now:brainSync,status:()=>({enabled:!!cloudUrl(),busy:brainBusy,dirty:brainDirty,version:brainVer,last:brainAt,note:brainNote})};
-setInterval(()=>{brainSync()},BRAIN_PULL_MS); /* récupère aussi l'apprentissage ajouté par un autre appareil */
+setInterval(()=>{brainSync();cloudSyncProgress()},BRAIN_PULL_MS); /* récupère aussi l'apprentissage ajouté par un autre appareil */
 async function linkCall(path,body){
   const res=await fetch(cloudUrl()+path,{method:'POST',headers:{'Content-Type':'application/json',...await cloudAuthHeaders()},body:JSON.stringify(body)});
   const data=await res.json().catch(()=>({}));
@@ -1439,7 +1428,7 @@ async function cloudPull(force){
   }catch(e){console.warn('[G2Point] Lecture de la mémoire IA distante impossible.',e)}
 }
 setTimeout(()=>{cloudFlush();cloudPull(true);cloudBootstrap()},2500);
-document.addEventListener('visibilitychange',()=>{if(!document.hidden){if(trainMode!=='on')stopIdleTraining();cloudFlush();cloudPull();brainSync()}else{startIdleTraining();if(brainDirty)brainSync()}});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden){if(trainMode!=='on')stopIdleTraining();cloudFlush();cloudPull();brainSync();cloudSyncProgress()}else{startIdleTraining();if(brainDirty)brainSync()}});
 startIdleTraining(); /* se met en route seul selon le mode (auto = onglet caché ; on = en continu) */
 
 /* ===== Initialisation des nouveautés ===== */

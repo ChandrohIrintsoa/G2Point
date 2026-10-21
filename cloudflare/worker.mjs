@@ -178,7 +178,7 @@ async function handleProgress(req,env,h){
     const b=p.value||{};
     if(!validPlayerId(b.playerId)||!safeObject(b.progress))return json({error:'progression invalide'},422,h);
     {const denied=await gate(req,env,h,b.playerId);if(denied)return denied}
-    const allowed=['streak','best','elo','ach','h2h'];
+    const allowed=['streak','best','elo','ach','h2h','at'];
     if(Object.keys(b.progress).some(k=>!allowed.includes(k)))return json({error:'champs refusés'},422,h);
     const payload=JSON.stringify(b.progress);
     await db.prepare('INSERT INTO player_progress(player_id,progress_json,updated_at) VALUES(?,?,unixepoch()) ON CONFLICT(player_id) DO UPDATE SET progress_json=excluded.progress_json,updated_at=unixepoch()').bind(b.playerId,payload).run();
