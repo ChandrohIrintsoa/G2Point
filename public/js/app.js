@@ -1301,7 +1301,7 @@ const TUTO=[
 ];
 let tutoI=0;
 function tutoDraw(sc){
-  const c=$('tutoCv'),x=c.getContext('2d'),G=36,O=22,P=(a,b)=>[O+a*G,O+b*G];
+  const c=$('tutoCv'),x=c.getContext('2d'),G=36,O=20,P=(a,b)=>[O+a*G,O+b*G];
   x.clearRect(0,0,220,220);x.fillStyle=col('--paper');x.fillRect(0,0,220,220);
   x.strokeStyle=col('--line');x.lineWidth=1;x.beginPath();for(let i=0;i<6;i++){x.moveTo(O+i*G,O);x.lineTo(O+i*G,O+5*G);x.moveTo(O,O+i*G);x.lineTo(O+5*G,O+i*G)}x.stroke();
   const dot=(a,b,cc,dead)=>{const [px,py]=P(a,b);x.globalAlpha=dead?.4:1;x.fillStyle=cc;x.shadowColor=cc;x.shadowBlur=dead?0:10;x.beginPath();x.arc(px,py,10,0,TAU);x.fill();x.shadowBlur=0;x.globalAlpha=1;
