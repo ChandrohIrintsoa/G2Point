@@ -1,11 +1,11 @@
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict');
 const fs=require('node:fs'),os=require('node:os'),path=require('node:path'),{spawnSync}=require('node:child_process');
-const AI=path.join(__dirname,'..','public','ai'),SUITE=path.join(AI,'suite.json'),CHAMP=path.join(AI,'champion.json');
+const AI=path.join(__dirname,'..','..','public','ai'),SUITE=path.join(AI,'suite.json'),CHAMP=path.join(AI,'champion.json');
 
 function run(env){
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'g2champ-'));fs.copyFileSync(SUITE,path.join(dir,'suite.json'));if(!env.NO_CHAMP)fs.copyFileSync(CHAMP,path.join(dir,'champion.json'));
-  const r=spawnSync(process.execPath,[path.join(__dirname,'..','scripts','champion.js')],{encoding:'utf8',timeout:120000,
+  const r=spawnSync(process.execPath,[path.join(__dirname,'..','..','scripts','champion.js')],{encoding:'utf8',timeout:120000,
     env:{...process.env,G2_OUT_DIR:dir,G2_HOF_FILE:path.join(dir,'hof.json'),G2_PROPOSALS_URL:'off',G2_BUDGET_MIN:'0.05',G2_SCREEN:'2',G2_GATE:'4',G2_HOF_GAMES:'2',G2_SEED:'7',G2_BASE_GAMES:'6',...env}});
   return{dir,r};
 }

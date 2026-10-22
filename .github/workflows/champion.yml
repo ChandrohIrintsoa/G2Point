@@ -31,6 +31,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Tester le pipeline d'entraînement
+        run: npm run test:champion
       - name: Entraîner et vérifier le champion
         id: train
         env:
