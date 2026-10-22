@@ -92,11 +92,16 @@ Les messages de discussion ne sont pas envoyés à Cloudflare.
 - `GET|PUT /api/progress` (jeton requis)
 - `GET|PUT /api/ai/player` (jeton requis ; ancien format, poids seuls)
 - `GET|PUT /api/ai/brain` (jeton requis) : cerveau IA avec verrou optimiste (`base` = version connue ; 409 + état courant si périmée)
+- `POST /api/ai/proposal` (jeton requis, 1/heure/joueur) et `GET /api/ai/proposals` (public, anonyme, sans identifiant) : propositions d'IA des joueurs, jugées par l'entraînement central
 - `POST /api/link/create` (jeton du propriétaire) et `POST /api/link/redeem` (jeton du nouvel appareil, 10 essais/h/IP) : liaison d'appareils
 
 ## Firestore : TTL à activer (une fois)
 
 Le champ `expireAt` ne supprime rien tout seul. Dans la console Firebase → Firestore → TTL, créer une politique sur le champ `expireAt` pour les groupes de collections `games`, `messages` et `lobby`. Les règles refusent déjà les coups et prises de siège sur une partie expirée ; le TTL ne sert qu'à purger les données.
+
+## Moteur d'IA commun (champion)
+
+`public/ai/champion.json` est le moteur d'IA partagé par tous les joueurs (lecture seule, servi avec le site). Il est entraîné par `.github/workflows/champion.yml` (chaque nuit, ou à la demande) via `npm run champion`. Un candidat (mutation, apprentissage par auto-parties, proposition d'un joueur) n'est promu que s'il passe la porte de vérification de `public/js/verify.js` : match contre le champion (≥ 56 %), banque de techniques (`public/ai/suite.json`, pas de régression), matchs contre les anciens champions (`ai/hof.json`). Le workflow pousse une branche `ai/champion-*` (et tente d'ouvrir une pull request) : rien n'est publié tant qu'elle n'est pas fusionnée. Les propositions des joueurs ne sont jamais crues sur parole : elles sont jouées comme n'importe quel candidat. Côté joueur, l'IA personnelle est vérifiée toutes les 30 parties apprises (retour automatique à la dernière version vérifiée en cas de régression).
 
 ## Synchronisation de l'IA entre appareils
 

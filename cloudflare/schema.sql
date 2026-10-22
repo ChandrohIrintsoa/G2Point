@@ -48,6 +48,14 @@ CREATE TABLE IF NOT EXISTS player_brain (
   updated_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
+-- Propositions d'IA des joueurs, jugées par l'entraînement central (aucune confiance accordée).
+CREATE TABLE IF NOT EXISTS ai_proposals (
+  player_id TEXT PRIMARY KEY,
+  json TEXT NOT NULL,
+  sim INTEGER NOT NULL DEFAULT 0,
+  at INTEGER NOT NULL DEFAULT (unixepoch())
+);
+
 -- Liaison d'appareils : uid supplémentaires autorisés pour un playerId, et codes à usage unique (10 min).
 CREATE TABLE IF NOT EXISTS player_links (
   player_id TEXT NOT NULL,

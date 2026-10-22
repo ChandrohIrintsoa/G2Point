@@ -1,0 +1,54 @@
+name: Entraînement du champion IA
+
+# Entraîne le moteur d'IA commun à tous les joueurs (public/ai/champion.json).
+# Un candidat n'est publié que s'il passe la porte de vérification (match, techniques, anciens champions).
+# Le résultat est proposé sur une BRANCHE ai/champion-* : rien n'est mis en ligne tant qu'elle n'est pas fusionnée dans main.
+
+on:
+  workflow_dispatch:
+    inputs:
+      budget_min:
+        description: Durée d'entraînement en minutes
+        required: false
+        default: "25"
+  schedule:
+    - cron: "40 1 * * *"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: champion
+  cancel-in-progress: false
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Entraîner et vérifier le champion
+        id: train
+        env:
+          G2_BUDGET_MIN: ${{ github.event.inputs.budget_min || '25' }}
+        run: node scripts/champion.js
+      - name: Proposer le nouveau champion (branche)
+        if: steps.train.outputs.promoted == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.train.outputs.version }}
+        run: |
+          set -e
+          BR="ai/champion-v${VERSION}-${GITHUB_RUN_ID}"
+          git config user.name "g2point-champion-bot"
+          git config user.email "noreply@github.com"
+          git checkout -b "$BR"
+          git add public/ai ai
+          git commit -m "IA : champion v${VERSION} (vérifié : match, techniques, anciens champions)"
+          git push origin "$BR"
+          echo "Branche proposée : $BR" >> "$GITHUB_STEP_SUMMARY"
+          gh pr create --base main --head "$BR" --title "IA : champion v${VERSION}" --body "Champion validé par la porte de vérification. Voir ai/last-report.json. Fusionner pour le publier à tous les joueurs." || echo "PR non créée automatiquement (réglage « Allow GitHub Actions to create pull requests » désactivé) : ouvrir la branche $BR sur GitHub." >> "$GITHUB_STEP_SUMMARY"

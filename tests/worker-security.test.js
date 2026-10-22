@@ -201,3 +201,39 @@ test('liaison : code inconnu 404, sans jeton 401, essais limités (429)',async()
   for(let i=0;i<10;i++)assert.equal((await W.default.fetch(req('/api/link/redeem',{method:'POST',tok,body:{code:'AAAAAAAA'}}),env)).status,404);
   assert.equal((await W.default.fetch(req('/api/link/redeem',{method:'POST',tok,body:{code:'AAAAAAAA'}}),env)).status,429);
 });
+
+/* ---- Propositions d'IA au champion central ---- */
+function propDb(){
+  const base=fakeDb(),orig=base.prepare.bind(base),rows=new Map();
+  return Object.assign(base,{rows,prepare(sql){
+    if(!/ai_proposals/.test(sql)||/CREATE TABLE/.test(sql))return orig(sql);
+    let args=[];
+    const w={bind(...a){args=a;return w},
+      async all(){return{results:[...rows.values()].sort((x,y)=>y.sim-x.sim).slice(0,20).map(r=>({json:r.json,sim:r.sim}))}},
+      async run(){rows.set(args[0],{json:args[1],sim:args[2]});return{meta:{changes:1}}}};
+    return w}});
+}
+const goodProp=(o={})=>({playerId:'player_123456',weights:[1,2,3,4,5,6],simulations:500,book:{k:[7,5,6,1]},...o});
+test('propositions : un joueur authentifié propose (1/heure), la lecture publique est anonyme et sans Origin',async()=>{
+  const W=await import('../cloudflare/worker.mjs');W._resetForTests();
+  const {pair,jwks}=await makeKeys(),db=propDb(),env={DB:db,ALLOWED_ORIGINS:ORIGIN,FIREBASE_PROJECT_ID:'proj',FIREBASE_JWKS:jwks};
+  const tok=await token(pair);
+  const post=b=>W.default.fetch(req('/api/ai/proposal',{method:'POST',tok,body:b}),env);
+  assert.equal((await post(goodProp())).status,200);
+  assert.equal((await post(goodProp({simulations:900}))).status,429,'une proposition par heure');
+  const r=await W.default.fetch(new Request('https://api.test/api/ai/proposals'),env); // pas d'Origin : entraînement central
+  assert.equal(r.status,200);
+  const data=await r.json();assert.equal(data.proposals.length,1);assert.deepEqual(data.proposals[0].w,[1,2,3,4,5,6]);
+  assert.ok(!JSON.stringify(data).includes('player_123456'),'aucun identifiant de joueur exposé');
+  assert.equal((await W.default.fetch(new Request('https://api.test/api/ai/proposal',{method:'POST',body:'{}'}),env)).status,403,'l\'écriture exige toujours une origine autorisée');
+});
+test('propositions : sans jeton 401 ; contenu invalide 422 (poids, trop peu de simulations, livre énorme)',async()=>{
+  const W=await import('../cloudflare/worker.mjs');W._resetForTests();
+  const {pair,jwks}=await makeKeys(),env={DB:propDb(),ALLOWED_ORIGINS:ORIGIN,FIREBASE_PROJECT_ID:'proj',FIREBASE_JWKS:jwks};
+  const tok=await token(pair);
+  assert.equal((await W.default.fetch(req('/api/ai/proposal',{method:'POST',body:goodProp()}),env)).status,401);
+  const big={};for(let i=0;i<400;i++)big['k'+i]=[1,1,1,1];
+  for(const bad of [goodProp({weights:[1,2,3]}),goodProp({weights:[1,2,3,4,5,999]}),goodProp({simulations:5}),goodProp({book:big}),goodProp({book:{k:[1,'x',1,1]}})]){
+    assert.equal((await W.default.fetch(req('/api/ai/proposal',{method:'POST',tok,body:bad}),env)).status,422);
+  }
+});
