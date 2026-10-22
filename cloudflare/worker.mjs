@@ -107,6 +107,7 @@ async function ensureTables(db){
   await db.prepare('CREATE TABLE IF NOT EXISTS player_brain(player_id TEXT PRIMARY KEY, brain_json TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1, updated_at INTEGER NOT NULL DEFAULT (unixepoch()))').run();
   await db.prepare('CREATE TABLE IF NOT EXISTS player_links(player_id TEXT NOT NULL, uid TEXT NOT NULL, created_at INTEGER NOT NULL DEFAULT (unixepoch()), PRIMARY KEY(player_id,uid))').run();
   await db.prepare('CREATE TABLE IF NOT EXISTS link_codes(code TEXT PRIMARY KEY, player_id TEXT NOT NULL, exp INTEGER NOT NULL)').run();
+  await db.prepare('CREATE TABLE IF NOT EXISTS ai_proposals(player_id TEXT PRIMARY KEY, json TEXT NOT NULL, sim INTEGER NOT NULL DEFAULT 0, at INTEGER NOT NULL DEFAULT (unixepoch()))').run();
   tablesReady=true;
 }
 export const _resetForTests=()=>{tablesReady=false;jwksCache={at:0,keys:null}};
@@ -178,7 +179,7 @@ async function handleProgress(req,env,h){
     const b=p.value||{};
     if(!validPlayerId(b.playerId)||!safeObject(b.progress))return json({error:'progression invalide'},422,h);
     {const denied=await gate(req,env,h,b.playerId);if(denied)return denied}
-    const allowed=['streak','best','elo','ach','h2h'];
+    const allowed=['streak','best','elo','ach','h2h','at'];
     if(Object.keys(b.progress).some(k=>!allowed.includes(k)))return json({error:'champs refusés'},422,h);
     const payload=JSON.stringify(b.progress);
     await db.prepare('INSERT INTO player_progress(player_id,progress_json,updated_at) VALUES(?,?,unixepoch()) ON CONFLICT(player_id) DO UPDATE SET progress_json=excluded.progress_json,updated_at=unixepoch()').bind(b.playerId,payload).run();
@@ -295,6 +296,42 @@ async function handleLink(req,env,h,action){
   return json({ok:true,playerId:row.player_id},200,{...h,'Cache-Control':'no-store'});
 }
 
+/* ---- Propositions d'IA des joueurs au champion central ----
+   Un joueur dont l'IA a passé sa vérification locale peut proposer ses poids et ses motifs maîtrisés (1 par heure).
+   Le serveur ne leur fait AUCUNE confiance : l'entraînement central (scripts/champion.js) les joue et les juge comme n'importe quel candidat.
+   La lecture est publique et anonyme (aucun identifiant de joueur n'est exposé). */
+const PROP_MAX_BOOK=300;
+export function validProposal(b){
+  if(!b||!isW6(b.weights))return false;
+  if(!(Number.isFinite(b.simulations)&&b.simulations>=100&&b.simulations<=1e9))return false;
+  if(b.book!=null){
+    if(typeof b.book!=='object'||Array.isArray(b.book))return false;
+    const keys=Object.keys(b.book);if(keys.length>PROP_MAX_BOOK)return false;
+    for(const k of keys){const e=b.book[k];if(k.length>200||!Array.isArray(e)||e.length!==4||e.some(v=>!Number.isFinite(v)))return false}
+  }
+  return true;
+}
+async function handleProposal(req,env,h){
+  const db=env.DB;if(!db)return json({error:'base indisponible'},503,h);
+  await ensureTables(db);
+  if(req.method==='GET'){
+    const rows=await db.prepare('SELECT json,sim FROM ai_proposals WHERE at>unixepoch()-?1 ORDER BY sim DESC LIMIT 20').bind(14*86400).all();
+    const proposals=[];
+    for(const r of (rows&&rows.results)||[]){try{const o=JSON.parse(r.json);proposals.push({w:o.w,book:o.book||{},simulations:r.sim})}catch{}}
+    return json({proposals},200,{...h,'Cache-Control':'public, max-age=300'});
+  }
+  if(req.method==='POST'){
+    const p=await readJson(req,60000);if(p.error)return json({error:'requête invalide'},p.error,h);
+    const b=p.value||{};
+    if(!validPlayerId(b.playerId)||!validProposal(b))return json({error:'proposition invalide'},422,h);
+    {const denied=await gate(req,env,h,b.playerId);if(denied)return denied}
+    if(!(await rateOk(db,'prop:'+b.playerId,1,3600)))return json({error:'une proposition par heure'},429,{...h,'Retry-After':'3600'});
+    await db.prepare('INSERT INTO ai_proposals(player_id,json,sim,at) VALUES(?,?,?,unixepoch()) ON CONFLICT(player_id) DO UPDATE SET json=excluded.json,sim=excluded.sim,at=unixepoch()').bind(b.playerId,JSON.stringify({w:b.weights,book:b.book||{}}),Math.floor(b.simulations)).run();
+    return json({ok:true},200,h);
+  }
+  return json({error:'méthode refusée'},405,h);
+}
+
 export async function handleArchive(req,env,h){
   const rb=await readBody(req,MAX_BODY);
   if(rb.error)return json({error:'trop gros'},rb.error,h);
@@ -324,12 +361,14 @@ export default{
   async fetch(req,env){
     const url=new URL(req.url),allowed=cors(req,env),requestId=req.headers.get('cf-ray')||crypto.randomUUID();
     const h={...(allowed||{}),'X-Request-ID':requestId};
+    /* lecture publique et anonyme des propositions (l'entraînement central n'envoie pas d'en-tête Origin) */
+    const openRead=req.method==='GET'&&url.pathname==='/api/ai/proposals'&&!req.headers.get('Origin');
     if(req.method==='OPTIONS')return new Response(null,{status:allowed?204:403,headers:h});
-    if(!allowed)return json({error:'origine non autorisée',requestId},403,h);
+    if(!allowed&&!openRead)return json({error:'origine non autorisée',requestId},403,h);
     try{
       if(url.pathname==='/api/archive'&&req.method==='POST')return await handleArchive(req,env,h);
       if(url.pathname==='/api/ai'&&req.method==='GET')return await handleAi(env,h);
-      if(/^\/api\/(profile|progress|ai\/player|ai\/brain)$/.test(url.pathname)&&env.DB){
+      if(/^\/api\/(profile|progress|ai\/player|ai\/brain|ai\/proposals?)$/.test(url.pathname)&&env.DB){
         const write=req.method!=='GET',ip=await ipHash(req,env);
         if(!(await rateOk(env.DB,(write?'w:':'r:')+ip,write?30:120,60)))return json({error:'trop de requêtes, réessayez dans une minute',requestId},429,{...h,'Retry-After':'60'});
       }
@@ -337,6 +376,8 @@ export default{
       if(url.pathname==='/api/progress')return await handleProgress(req,env,h);
       if(url.pathname==='/api/ai/player')return await handlePlayerAi(req,env,h);
       if(url.pathname==='/api/ai/brain')return await handleBrain(req,env,h);
+      if(url.pathname==='/api/ai/proposal')return await handleProposal(req,env,h);
+      if(url.pathname==='/api/ai/proposals'&&req.method==='GET')return await handleProposal(req,env,h);
       if(url.pathname==='/api/link/create')return await handleLink(req,env,h,'create');
       if(url.pathname==='/api/link/redeem')return await handleLink(req,env,h,'redeem');
       return json({error:'introuvable'},404,h);

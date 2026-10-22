@@ -71,3 +71,20 @@ test('motif maîtrisé : ≥ 6 rencontres, ≥ 80 % de victoires, gain positif ;
   assert.equal(B.masteredCount(a),2);
   a.book.b=[6,6,6,0];assert.equal(B.masteredCount(a),3,'un nouveau motif franchit le seuil');
 });
+
+test('progression : l\'ELO descend après une défaite sans être « ressuscité » par la synchro (le plus récent gagne)',()=>{
+  const phone={at:1000,streak:3,best:3,elo:{x:1450},ach:{a:5},h2h:{}},pc={at:2000,streak:0,best:3,elo:{x:1420},ach:{b:7},h2h:{}};
+  const m=B.mergeProgress(phone,pc),m2=B.mergeProgress(pc,phone);
+  assert.equal(m.elo.x,1420);assert.equal(m2.elo.x,1420);assert.equal(m.streak,0);
+  assert.deepEqual(Object.keys(m.ach).sort(),['a','b']);assert.equal(m.at,2000);
+});
+test('progression : niveaux jamais joués ailleurs conservés, bilans et meilleure série en maximum, idempotent',()=>{
+  const a={at:5,streak:1,best:9,elo:{x:1300,y:1500},ach:{},h2h:{u:{n:'A',w:3,l:1,d:0}}},b={at:9,streak:2,best:4,elo:{x:1280},ach:{},h2h:{u:{n:'A',w:2,l:4,d:1}}};
+  const m=B.mergeProgress(a,b);
+  assert.deepEqual(m.elo,{x:1280,y:1500});assert.equal(m.best,9);assert.deepEqual(m.h2h.u,{n:'A',w:3,l:4,d:1});
+  assert.equal(B.canon(B.mergeProgress(m,m)),B.canon(m));assert.equal(B.canon(B.mergeProgress(m,a)),B.canon(B.mergeProgress(a,m)));
+});
+test('progression : anciens clients sans horodatage -> maximum (comportement prudent)',()=>{
+  const m=B.mergeProgress({streak:1,best:2,elo:{x:1300}},{streak:4,best:3,elo:{x:1250}});
+  assert.equal(m.elo.x,1300);assert.equal(m.streak,4);assert.equal(m.best,4);
+});

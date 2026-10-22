@@ -87,6 +87,30 @@ function merge(a,b){
   out.train=mergeTrain(a.train,b.train);
   return out;
 }
+/* Progression (ELO, série, succès, face-à-face). Les compteurs qui ne font que croître (succès, bilans face-à-face, meilleure série)
+   se fusionnent par maximum. L'ELO et la série courante montent ET descendent : un maximum annulerait chaque défaite à la synchro.
+   Ils viennent donc de l'appareil qui a joué en dernier (`at`), clé par clé pour l'ELO (un niveau jamais joué ailleurs est conservé). */
+function mergeProgress(local,remote){
+  const a=local&&typeof local==='object'?local:{},b=remote&&typeof remote==='object'?remote:{};
+  const atA=num(a.at),atB=num(b.at),newer=atA>=atB?a:b,older=newer===a?b:a;
+  const elo={};
+  for(const k of new Set([...Object.keys(older.elo||{}),...Object.keys(newer.elo||{})])){
+    const x=older.elo&&older.elo[k],y=newer.elo&&newer.elo[k];
+    elo[k]=y!=null?num(y):num(x);
+  }
+  if(atA===atB)for(const k of Object.keys(elo))elo[k]=Math.max(num(a.elo&&a.elo[k]),num(b.elo&&b.elo[k])); /* anciens clients sans horodatage */
+  const ach={...(b.ach||{})};
+  for(const k of Object.keys(a.ach||{})){const v=a.ach[k];if(v)ach[k]=ach[k]?Math.min(num(ach[k],num(v)),num(v,num(ach[k]))):v}
+  const h2h={...(b.h2h||{})};
+  for(const id of Object.keys(a.h2h||{})){
+    const v=a.h2h[id]||{},old=h2h[id]||{n:'',w:0,l:0,d:0};
+    h2h[id]={n:v.n||old.n||'',w:Math.max(num(old.w),num(v.w)),l:Math.max(num(old.l),num(v.l)),d:Math.max(num(old.d),num(v.d))};
+  }
+  const streak=atA===atB?Math.max(num(a.streak),num(b.streak)):num(newer.streak);
+  return{streak,best:Math.max(num(a.best),num(b.best),streak),elo,ach,h2h,at:Math.max(atA,atB)};
+}
+const canon=o=>JSON.stringify(o,(k,v)=>v&&typeof v==='object'&&!Array.isArray(v)?Object.keys(v).sort().reduce((r,x)=>(r[x]=v[x],r),{}):v);
+
 /* Applique un cerveau fusionné à une mémoire IA locale (qui garde son journal et ses champs propres). */
 function applyTo(ai,brain){
   const out={...ai};if(!brain)return out;
@@ -106,5 +130,5 @@ function fingerprint(b){
   return f.join('|');
 }
 const same=(a,b)=>fingerprint(a)===fingerprint(b);
-return{VERSION,isMastered,masteredCount,MASTER_MIN,pack,merge,mergeBook,mergeTrain,applyTo,same,fingerprint,cleanBook,cleanTrain,experience,MAX_BOOK};
+return{VERSION,mergeProgress,canon,isMastered,masteredCount,MASTER_MIN,pack,merge,mergeBook,mergeTrain,applyTo,same,fingerprint,cleanBook,cleanTrain,experience,MAX_BOOK};
 });

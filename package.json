@@ -6,7 +6,9 @@
     "cf:schema": "wrangler d1 execute g2point --remote --file=cloudflare/schema.sql --config cloudflare/wrangler.toml",
     "cf:deploy": "wrangler deploy --config cloudflare/wrangler.toml",
     "bench": "node scripts/bench.js",
-    "train:sim": "node scripts/train-sim.js"
+    "train:sim": "node scripts/train-sim.js",
+    "champion": "node scripts/champion.js",
+    "test:champion": "node --test tests/slow/*.test.js"
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^3.0.4",

@@ -226,7 +226,7 @@ const trainWanted=()=>trainMode!=='off'&&idleBatterySafe&&typeof Worker!=='undef
 function trainEnsure(){
   if(!trainTour)trainTour=new G2Trainer.Tournament(trainCfg(),jget(TRAIN_KEY,null));
   if(!trainWorker){
-    trainWorker=new Worker('js/train-worker.js?v=2');
+    trainWorker=new Worker('js/train-worker.js?v=3');
     trainWorker.onmessage=trainOnMessage;
     trainWorker.onerror=e=>{trainNote='Worker en erreur : '+(e&&e.message||'inconnue');stopIdleTraining()};
   }
@@ -254,6 +254,7 @@ function trainTick(){
     trainNote='Pause (série de '+trainTour.cfg.streakLimit+' victoires) — reprise à '+new Date(trainTour.st.pauseUntil).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
     trainTimer=setTimeout(trainTick,Math.min(ms+50,2147e3));return;
   }
+  if(gateDue()){requestGate();return}
   trainTour.cfg={...trainTour.cfg,...trainCfg()};
   const m=trainTour.next();trainBusy=true;trainJob++;trainNote='Partie '+(trainTour.st.games+1)+' : '+m.a.name+' contre '+m.b.name;
   trainWorker.postMessage({type:'play',id:trainJob,a:trainSide(m.a),b:trainSide(m.b),swap:m.swap,seed:m.seed,pair:[m.a.id,m.b.id]});
@@ -261,6 +262,7 @@ function trainTick(){
 }
 function trainOnMessage(ev){
   const m=ev.data||{};trainBusy=false;
+  if(m.type==='gateResult'){gateDone(m.result);trainTimer=setTimeout(trainTick,40);return}
   if(m.type==='error'){trainNote='Erreur de partie : '+m.message;trainTimer=setTimeout(trainTick,5000);return}
   if(m.type!=='result'||!trainRunning||!trainWorker)return;
   const [A,B]=trainWorker.__pair,r=m.result,rec=trainTour.record(A.id,B.id,r.winner,r.complete);
@@ -284,6 +286,83 @@ function trainLearn(A,B,r){
   }
   saveAI(a);
 }
+
+/* ---- Vérification avant adoption + moteur commun (champion) ----
+   Toutes les GATE_EVERY parties apprises, les poids évolués de l'IA personnelle sont comparés à la dernière version VÉRIFIÉE :
+   match d'essai, banque de techniques et match contre le champion. En cas de régression, retour automatique à la version vérifiée.
+   Une IA vérifiée et expérimentée peut être proposée au champion central, qui la rejuge de son côté (rien n'est cru sur parole). */
+const CHAMP_KEY='g2p.champ',GATE_EVERY=window.G2_GATE_EVERY||30,PROPOSE_EVERY_MS=6*36e5;
+let champInfo=jget(CHAMP_KEY,null),suiteCache=null,gatePending=null,gateLastAt=0;
+const snapW=a=>({w:a.w.slice(),c:(a.c||a.w).slice(),pop:JSON.parse(JSON.stringify(a.pop||[])),active:a.active|0});
+async function loadSuite(){
+  if(suiteCache)return suiteCache;
+  try{const r=await fetch('ai/suite.json');if(r.ok){const d=await r.json();if(d&&Array.isArray(d.entries))suiteCache=d.entries}}catch(e){}
+  return suiteCache||[];
+}
+function gateDue(){
+  if(gatePending||!trainWorker||!window.G2Verify)return false;
+  const a=jget('g2p.ai',null);if(!a||!(a.games>0)||a.games%GATE_EVERY!==0||a.gateAt===a.games)return false;
+  return true;
+}
+function requestGate(){
+  const a=loadAI();a.gateAt=a.games;
+  if(!a.safe||!Array.isArray(a.safe.w)){a.safe=snapW(a);saveAI(a);trainTimer=setTimeout(trainTick,40);return} /* première version : elle devient la référence */
+  const books={book:a.book,sbook:a.sbook,antiBook:a.antiBook,antiSBook:a.antiSBook};
+  const hof=champInfo&&Array.isArray(champInfo.w)?[{name:'champion v'+champInfo.version,params:{w:champInfo.w}}]:[];
+  gatePending={snap:snapW(a),at:Date.now()};saveAI(a);
+  trainBusy=true;trainNote='Vérification de l’évolution de l’IA…';
+  loadSuite().then(suite=>{
+    if(!trainWorker||!gatePending){trainBusy=false;gatePending=null;return}
+    trainWorker.postMessage({type:'gate',id:++trainJob,cand:{w:a.w,...books},base:{w:a.safe.w,...books},suite:suite.length?suite:null,hof,seed:a.games});
+  });
+}
+function gateDone(result){
+  const pend=gatePending;gatePending=null;if(!pend||!result)return;
+  const a=loadAI(),v=a.verify=a.verify||{ok:0,fail:0,last:0,note:''};v.last=Date.now();
+  if(result.pass){
+    v.ok++;v.note='';a.safe=pend.snap;
+    trainNote='Évolution vérifiée ✔';
+    const ready=(a.simulations|0)>=200&&G2Brain.masteredCount(a)>=3&&Date.now()-(+localStorage.getItem('g2p.proposed')||0)>PROPOSE_EVERY_MS;
+    saveAI(a);if(ready)proposeToChampion(a);
+  }else{
+    v.fail++;v.note=(result.reasons||[]).join(' ; ').slice(0,200);
+    const safe=a.safe;a.w=safe.w.slice();a.c=safe.c.slice();a.pop=JSON.parse(JSON.stringify(safe.pop));a.active=safe.active|0; /* retour à la dernière version vérifiée */
+    trainNote='Évolution rejetée, retour à la version vérifiée : '+v.note;
+    saveAI(a);
+  }
+}
+async function proposeToChampion(a){
+  if(!cloudUrl())return;
+  try{
+    const book={};let n=0;
+    for(const k of Object.keys(a.book||{})){if(G2Brain.isMastered(a.book[k])){book[k]=a.book[k];if(++n>=250)break}}
+    await cloudRequest('/api/ai/proposal','POST',{playerId:devId(),weights:a.w,book,simulations:a.simulations|0});
+    try{localStorage.setItem('g2p.proposed',String(Date.now()))}catch(e){}
+  }catch(e){console.warn('[G2Point] Proposition au champion différée.',e&&e.message)}
+}
+/* Le champion est le moteur commun : adopté s'il est plus expérimenté que l'IA locale ; ses motifs sont fusionnés sans rien perdre. */
+function adoptChampion(c){
+  const a=loadAI(),local=G2Brain.pack(a,null);
+  const champ=G2Brain.pack({w:c.w,c:c.c||c.w,pop:null,simulations:c.simulations|0,games:0,book:c.book,sbook:c.sbook,antiBook:c.antiBook,antiSBook:c.antiSBook,st:{g:0,w:0}},null);
+  const out=G2Brain.applyTo(a,G2Brain.merge(local,champ));
+  if(out.w.join()!==a.w.join()){out.c=out.w.slice();out.pop=freshPopulation(out.w);out.active=0}
+  out.safe=snapW(out);out.champVer=c.version;
+  jset('g2p.ai',out);champInfo={version:c.version,w:c.w.slice(),at:Date.now()};try{localStorage.setItem(CHAMP_KEY,JSON.stringify(champInfo))}catch(e){}
+  cloudPersistAI(true);
+}
+let champChecked=0;
+async function loadChampion(force){
+  if(!force&&Date.now()-champChecked<36e5)return;champChecked=Date.now();
+  try{
+    const res=await fetch('ai/champion.json',{cache:'no-cache'});if(!res.ok)return;
+    const c=await res.json();
+    if(!c||!Number.isFinite(c.version)||!(c.w&&c.w.length===6&&c.w.every(Number.isFinite)))return;
+    if(!champInfo||c.version>champInfo.version||!jget('g2p.ai',null))adoptChampion(c);
+    else if(!champInfo.w)champInfo.w=c.w.slice();
+  }catch(e){console.warn('[G2Point] Champion indisponible.',e&&e.message)}
+}
+window.G2Common={champion:()=>champInfo,verify:()=>(loadAI().verify||{ok:0,fail:0,last:0,note:''})};
+setTimeout(()=>loadChampion(true),1800);
 window.G2Train={
   status(){
     const t=trainTour||(window.G2Trainer?new G2Trainer.Tournament(trainCfg(),jget(TRAIN_KEY,null)):null);
@@ -954,7 +1033,7 @@ function progress(r,mine){
     unlock(P,'daily');const dd=jget('g2p.dd',[]);
     if(!dd.includes(daily)){dd.push(daily);jset('g2p.dd',dd);for(const t of THEMES)if(t.need==dd.length&&t.need>0)newAch.push('🎨 Thème « '+t.name+' » débloqué')}
   }
-  jset('g2p.prog',P);cloudSyncProgress(P);
+  P.at=Date.now();jset('g2p.prog',P);cloudSyncProgress(P);
   if(newAch.length)note(newAch.join(' · '));
 }
 function renderProg(){
@@ -1292,25 +1371,14 @@ async function cloudSyncProfile(){
   if(!cloudUrl())return;
   try{await cloudRequest('/api/profile','PUT',{playerId:devId(),nickname:getNickname()})}catch(e){}
 }
-function mergeProgress(local,remote){
-  const a=local&&typeof local==='object'?local:{},b=remote&&typeof remote==='object'?remote:{};
-  const elo={...(b.elo||{})};
-  for(const [k,v] of Object.entries(a.elo||{}))elo[k]=Math.max(Number(elo[k])||0,Number(v)||0);
-  const ach={...(b.ach||{})};
-  for(const [k,v] of Object.entries(a.ach||{}))if(v)ach[k]=ach[k]?Math.min(Number(ach[k])||v,Number(v)||ach[k]):v;
-  const h2h={...(b.h2h||{})};
-  for(const [id,v] of Object.entries(a.h2h||{})){
-    const old=h2h[id]||{n:'',w:0,l:0,d:0};
-    h2h[id]={n:v.n||old.n||'',w:Math.max(Number(old.w)||0,Number(v.w)||0),l:Math.max(Number(old.l)||0,Number(v.l)||0),d:Math.max(Number(old.d)||0,Number(v.d)||0)};
-  }
-  return{streak:Math.max(Number(a.streak)||0,Number(b.streak)||0),best:Math.max(Number(a.best)||0,Number(b.best)||0,Number(a.streak)||0,Number(b.streak)||0),elo,ach,h2h};
-}
+const mergeProgress=(l,r)=>G2Brain.mergeProgress(l,r);
 async function cloudSyncProgress(P=loadProg()){
   if(!cloudUrl())return;
   try{
     const remote=await cloudRequest('/api/progress?playerId='+encodeURIComponent(devId()));
     const merged=mergeProgress(P,remote&&remote.progress);
     jset('g2p.prog',merged);
+    if(remote&&remote.progress&&G2Brain.canon(mergeProgress(remote.progress,remote.progress))===G2Brain.canon(merged))return; /* rien de neuf à écrire */
     await cloudRequest('/api/progress','PUT',{playerId:devId(),progress:merged});
   }catch(e){console.warn('[G2Point] Synchronisation de progression différée.',e)}
 }
@@ -1333,7 +1401,9 @@ function cloudPersistAI(urgent){
 function brainMergeLocal(remote){
   const a=loadAI(),local=G2Brain.pack(a,trainTour?trainTour.snapshot():jget(TRAIN_KEY,null)),merged=G2Brain.merge(local,remote);
   if(!G2Brain.same(merged,local)){
-    jset('g2p.ai',G2Brain.applyTo(a,merged));
+    const na=G2Brain.applyTo(a,merged);
+    if(na.w.join()!==a.w.join())na.safe=snapW(na); /* poids reçus d'un autre appareil (déjà vérifiés là-bas) : nouvelle référence */
+    jset('g2p.ai',na);
     if(merged.train){if(trainTour)trainTour.restore(merged.train);jset(TRAIN_KEY,merged.train)}
   }
   return merged;
@@ -1364,7 +1434,7 @@ async function brainSync(){
   }finally{brainBusy=false}
 }
 window.G2Sync={now:brainSync,status:()=>({enabled:!!cloudUrl(),busy:brainBusy,dirty:brainDirty,version:brainVer,last:brainAt,note:brainNote})};
-setInterval(()=>{brainSync()},BRAIN_PULL_MS); /* récupère aussi l'apprentissage ajouté par un autre appareil */
+setInterval(()=>{brainSync();cloudSyncProgress()},BRAIN_PULL_MS); /* récupère aussi l'apprentissage ajouté par un autre appareil */
 async function linkCall(path,body){
   const res=await fetch(cloudUrl()+path,{method:'POST',headers:{'Content-Type':'application/json',...await cloudAuthHeaders()},body:JSON.stringify(body)});
   const data=await res.json().catch(()=>({}));
@@ -1374,7 +1444,8 @@ async function linkCall(path,body){
 function renderSyncState(){
   const el=$('aiSyncState');if(!el)return;
   const sy=window.G2Sync&&window.G2Sync.status();
-  el.textContent=!sy||!sy.enabled?'Cloud non configuré : l’IA évolue sur cet appareil uniquement.':sy.note?sy.note:sy.last?'Synchronisée · version '+sy.version+' · il y a '+Math.max(0,Math.round((Date.now()-sy.last)/60000))+' min':'Pas encore synchronisée.';
+  const ci=window.G2Common&&G2Common.champion(),vf=window.G2Common&&G2Common.verify(),extra=(ci?' · moteur commun : champion v'+ci.version:'')+(vf&&(vf.ok||vf.fail)?' · évolutions vérifiées '+vf.ok+' ✔ / '+vf.fail+' rejetée(s)':'');
+  el.textContent=(!sy||!sy.enabled?'Cloud non configuré : l’IA évolue sur cet appareil uniquement.':sy.note?sy.note:sy.last?'Synchronisée · version '+sy.version+' · il y a '+Math.max(0,Math.round((Date.now()-sy.last)/60000))+' min':'Pas encore synchronisée.')+extra;
 }
 $('aiLinkMake').onclick=async()=>{
   const out=$('aiLinkCode');out.textContent='…';
@@ -1439,7 +1510,7 @@ async function cloudPull(force){
   }catch(e){console.warn('[G2Point] Lecture de la mémoire IA distante impossible.',e)}
 }
 setTimeout(()=>{cloudFlush();cloudPull(true);cloudBootstrap()},2500);
-document.addEventListener('visibilitychange',()=>{if(!document.hidden){if(trainMode!=='on')stopIdleTraining();cloudFlush();cloudPull();brainSync()}else{startIdleTraining();if(brainDirty)brainSync()}});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden){loadChampion();if(trainMode!=='on')stopIdleTraining();cloudFlush();cloudPull();brainSync();cloudSyncProgress()}else{startIdleTraining();if(brainDirty)brainSync()}});
 startIdleTraining(); /* se met en route seul selon le mode (auto = onglet caché ; on = en continu) */
 
 /* ===== Initialisation des nouveautés ===== */
