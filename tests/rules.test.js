@@ -14,6 +14,14 @@ test.after(()=>env.cleanup());
 test.beforeEach(()=>env.clearFirestore());
 const join=async()=>{await assertSucceeds(setDoc(ref('a'),base()));await assertSucceeds(updateDoc(ref('b'),{s1:'b',name1:'B'}))};
 const mv=(u,cell,cur)=>updateDoc(ref(u),{moves:arrayUnion(cell),cur,lastAt:serverTimestamp()});
+test('dimensions du plateau : seules les trois tailles du moteur sont acceptées',async()=>{
+  await assertFails(setDoc(ref('a'),{...base(),w:11,h:31}));
+  await assertFails(setDoc(ref('a'),{...base(),w:17,h:15}));
+  await assertFails(setDoc(ref('a'),{...base(),w:23,h:23}));
+  await assertSucceeds(setDoc(ref('a'),base()));
+  await assertSucceeds(setDoc(doc(db('a'),'games','FGHJK'),{...base(),w:17,h:23}));
+  await assertSucceeds(setDoc(doc(db('a'),'games','LMNPQ'),{...base(),w:23,h:31}));
+});
 test('création et jonction',join);
 test('invité sans compte refusé',async()=>assertFails(getDoc(doc(env.unauthenticatedContext().firestore(),'games','ABCDE'))));
 test('listing des parties refusé',async()=>{await join();await assertFails(getDocs(collection(db('a'),'games')))});
