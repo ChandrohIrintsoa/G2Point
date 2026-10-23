@@ -8,7 +8,8 @@
     "bench": "node scripts/bench.js",
     "train:sim": "node scripts/train-sim.js",
     "champion": "node scripts/champion.js",
-    "test:champion": "node --test tests/slow/*.test.js"
+    "test:champion": "node --test tests/slow/*.test.js",
+    "ablation": "node scripts/ablation.js"
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^3.0.4",

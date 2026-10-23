@@ -153,10 +153,20 @@ function patKey(s,x,y,t){
   }
   return k;
 }
+/* Contrat « nombre d'équipes » : l'évaluation de l'IA oppose le joueur à UN adversaire principal.
+   À 2 équipes (duel, ou 2 équipes de 2) c'est exactement l'autre équipe. À 3 ou 4 joueurs sans équipes, l'adversaire principal est
+   le rival qui mène (score le plus élevé, égalité : le plus proche dans l'ordre de jeu). Ce n'est pas une recherche max-n complète. */
+const teamCount=s=>s.tm?2:s.N;
+function rival(s,t){
+  if(teamCount(s)<=2)return 1-t;
+  let best=-1;
+  for(let k=1;k<s.N;k++){const q=(t+k)%s.N;if(best<0||s.sc[q]>s.sc[best])best=q}
+  return best;
+}
 /* Contexte stratégique appris : phase de partie, densité locale et chaîne de captures.
    Il permet à l'IA de réutiliser des familles de plans, pas seulement des voisinages isolés. */
 function strategyKey(s,x,y,t){
-  const opp=1-t,phase=s.n<8?'O':s.n<30?'M':'E',mine=links(s,x,y,t),enemy=links(s,x,y,opp);
+  const opp=rival(s,t),phase=s.n<8?'O':s.n<30?'M':'E',mine=links(s,x,y,t),enemy=links(s,x,y,opp);
   const pressure=mine>=3?'F':mine>=1?'P':'I',danger=enemy>=2?'D':'S',chain=s.combo>0?'C':'N';
   const edge=x<2||y<2||x>=s.w-2||y>=s.h-2?'B':'C';
   return `S|${phase}|${pressure}|${danger}|${chain}|${edge}`;
@@ -211,7 +221,7 @@ function opponentStyle(p){
   return{capture:Math.min(1,(+p?.captures||0)/n),cluster:Math.min(1,(+p?.cluster||0)/n),edge:Math.min(1,(+p?.edge||0)/n)};
 }
 function positionValue(s,root,weights,profile){
-  const opp=1-root,style=opponentStyle(profile);
+  const opp=rival(s,root),style=opponentStyle(profile);
   let v=(s.sc[root]-s.sc[opp])*(weights[0]+weights[1])*.5;
   let mine=0,theirs=0,frontier=0;
   for(let y=0;y<s.h;y++)for(let x=0;x<s.w;x++){
@@ -263,7 +273,9 @@ function searchBeam(s,root,depth,beam,weights,book,level,profile,ctx){
   ctx.table.set(hash,value);
   return value;
 }
-/* Petit MCTS UCT : complète le minimax par des trajectoires adverses échantillonnées.
+/* Raffinement de type « bandit UCT à la racine » : ce N'EST PAS un arbre Monte-Carlo complet (aucun arbre de positions n'est
+   conservé). On choisit parmi les meilleurs coups candidats par UCT, chacun évalué par des trajectoires heuristiques courtes
+   (4 demi-coups). Son apport doit se mesurer par ablation (scripts/ablation.js) avant d'être invoqué comme argument de force.
    Les simulations sont bornées dans le temps et n'altèrent jamais l'état source. */
 function mctsRefine(s,root,candidates,weights,profile,rnd=Math.random,deadline=nowMs()+160,iterations=180){
  const arms=candidates.slice(0,8).map(c=>({move:c.m||c,visits:0,total:0,mean:0}));
@@ -302,6 +314,8 @@ function mctsRefine(s,root,candidates,weights,profile,rnd=Math.random,deadline=n
  arms.sort((a,b)=>b.mean-a.mean||b.visits-a.visits);
  return{move:arms[0].move,visits,arms:arms.map(a=>({move:a.move,visits:a.visits,mean:a.mean}))};
 }
+/* Plafond dur : au-delà, les étapes coûteuses restantes (recherche, raffinement) sont sautées et le meilleur coup déjà évalué est joué. */
+const HARD_MAX_MS=2200;
 const nowMs=()=>typeof performance!=='undefined'&&performance.now?performance.now():Date.now();
 /* Cases candidates : vides, hors territoire confiné, proches d'un point existant */
 function cands(s){
@@ -383,7 +397,7 @@ function predictiveMap(s,opponent,horizon=FUTURE_HORIZON,budgetMs=140){
  return{...paths,forecast:future,risk};
 }
 function aiMove(s,rnd=Math.random,P){
-  const W=s.w,H=s.h,t=tmOf(s.tm,s.cur),opp=1-t,w=(P&&P.w)||DEFAULT_W,book=P&&P.book,strategyBook=P&&P.sbook||book,antiBook=P&&P.antiBook,antiSBook=P&&P.antiSBook,L=LEVELS[(P&&P.lvl!=null)?P.lvl:1]||LEVELS[1],profile=P&&P.opponent;
+  const W=s.w,H=s.h,t=tmOf(s.tm,s.cur),opp=rival(s,t),startMs=nowMs(),late=()=>nowMs()-startMs>HARD_MAX_MS,w=(P&&P.w)||DEFAULT_W,book=P&&P.book,strategyBook=P&&P.sbook||book,antiBook=P&&P.antiBook,antiSBook=P&&P.antiSBook,L=LEVELS[(P&&P.lvl!=null)?P.lvl:1]||LEVELS[1],profile=P&&P.opponent;
   const {any,list:c0}=cands(s),Z=P&&P.zone,cand=Z?c0.filter(([x,y])=>x>=Z[0]&&x<=Z[1]&&y>=Z[2]&&y<=Z[3]):c0; /* zone optionnelle : jeu compact (puzzles) */
   if(!any){const c=[W>>1,H>>1];return legal(s,c[0],c[1])?c:null}
   if(!cand.length){for(let y=0;y<H;y++)for(let x=0;x<W;x++)if(legal(s,x,y)&&(!Z||(x>=Z[0]&&x<=Z[1]&&y>=Z[2]&&y<=Z[3])))return[x,y];return null}
@@ -417,7 +431,7 @@ function aiMove(s,rnd=Math.random,P){
     const map=predictiveMap(s,opp,FUTURE_HORIZON,L.champion?200:130);
     for(const c of scored){const k=c.m[1]*W+c.m[0],risk=map.risk[k]||0;c.v+=risk*w[2]*.22;if(map.forecast.projected.has(k))c.v+=w[2]*.45}
   }
-  if(L.deep){
+  if(L.deep&&!late()){
     /* Phase 1 : pénalité tactique immédiate, renforcée si l'adversaire est agressif. */
     const style=opponentStyle(profile),defense=1+style.capture*.35+style.cluster*.2;
     for(const c of scored.slice(0,HARD_TOP)){
@@ -438,7 +452,7 @@ function aiMove(s,rnd=Math.random,P){
       scored.sort((p,q)=>q.v-p.v);
     }
     scored.sort((p,q)=>q.v-p.v);
-    if(L.champion){
+    if(L.champion&&!(P&&P.noMcts)&&!late()){
       const mc=mctsRefine(s,t,scored.slice(0,8),w,profile,rnd,nowMs()+180,180);
       if(mc.move&&legal(s,mc.move[0],mc.move[1]))return mc.move;
     }
@@ -470,6 +484,6 @@ function genPuzzle(rnd=Math.random,intel=0,P,maxMs=1500){
   }
   return null;
 }
-const api={genPuzzle,puzzleSpec,create,scan,apply,legal,links,tmOf,grid,clone,rng,aiMove,learn,teach,observeOpponent,opponentStyle,positionValue,bookValue,patKey,strategyKey,mutate,imaginaryTargets,dijkstraTargets,aStarRoute,forecastOpponent,predictiveMap,mctsRefine,stateHash,rebuildHash:s=>{s._hash=computeHash(s);return s._hash.toString(36)},DEFAULT_W,LEVELS};
+const api={rival,teamCount,genPuzzle,puzzleSpec,create,scan,apply,legal,links,tmOf,grid,clone,rng,aiMove,learn,teach,observeOpponent,opponentStyle,positionValue,bookValue,patKey,strategyKey,mutate,imaginaryTargets,dijkstraTargets,aStarRoute,forecastOpponent,predictiveMap,mctsRefine,stateHash,rebuildHash:s=>{s._hash=computeHash(s);return s._hash.toString(36)},DEFAULT_W,LEVELS};
 root.G2Engine=api;if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:globalThis);

@@ -55,3 +55,11 @@ Voir `PRIVACY.md`.
 
 - Changer la version des fichiers (`?v=`) dans `public/index.html` **et** `public/sw.js` (nom de cache `g2p-vNN`) à chaque modification du site, pour que la PWA se mette à jour.
 - Ne jamais pousser directement sur `main` sans CI verte : un push qui touche `public/`, `firebase/` ou `firebase.json` déclenche le déploiement.
+
+
+## IA : contrat, validation et performances
+
+- **Nombre de joueurs.** Le duel et les parties à 2 équipes sont le cas nominal de l'IA. À 3 ou 4 joueurs sans équipes, l'évaluation oppose le joueur à son *rival principal* (celui qui mène), ce qui n'est pas une recherche max-n complète. Dans le jeu, l'IA locale ne joue que des duels. Voir `rival()` dans `public/js/engine.js` et les tests de contrat dans `tests/properties.test.js`.
+- **Porte de vérification fermée par défaut** (`public/js/verify.js`). Sans preuve suffisante, le candidat est refusé : trop peu de parties terminées, banque de techniques vide, aucun match terminé contre un ancien champion, ou exception du vérificateur (`safeGate` : `pass:false`, `error:true`). Une exécution dégradée n'est jamais une réussite.
+- **Temps de réponse.** Le niveau Champion a un plafond dur (`HARD_MAX_MS`) : au-delà, la recherche et le raffinement restants sont sautés et le meilleur coup déjà évalué est joué. Mesures sur la machine de développement (Node) : 17×23, Champion, p95 ≈ 0,3 s ; Difficile, p95 ≈ 0,1 s. Un téléphone modeste est plusieurs fois plus lent : non mesuré sur appareil. Le calcul de l'IA de partie reste dans le fil principal (déplacement dans un Worker : non fait).
+- **« MCTS ».** `mctsRefine` est un raffinement de type bandit UCT à la racine avec trajectoires heuristiques courtes, pas un arbre Monte-Carlo complet. Son apport se mesure par `npm run ablation` (intervalle de confiance de Wilson) ; aucune conclusion n'est tirée tant que l'intervalle contient 0,5.

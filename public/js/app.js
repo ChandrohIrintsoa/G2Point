@@ -226,7 +226,7 @@ const trainWanted=()=>trainMode!=='off'&&idleBatterySafe&&typeof Worker!=='undef
 function trainEnsure(){
   if(!trainTour)trainTour=new G2Trainer.Tournament(trainCfg(),jget(TRAIN_KEY,null));
   if(!trainWorker){
-    trainWorker=new Worker('js/train-worker.js?v=3');
+    trainWorker=new Worker('js/train-worker.js?v=4');
     trainWorker.onmessage=trainOnMessage;
     trainWorker.onerror=e=>{trainNote='Worker en erreur : '+(e&&e.message||'inconnue');stopIdleTraining()};
   }
@@ -325,9 +325,9 @@ function gateDone(result){
     const ready=(a.simulations|0)>=200&&G2Brain.masteredCount(a)>=3&&Date.now()-(+localStorage.getItem('g2p.proposed')||0)>PROPOSE_EVERY_MS;
     saveAI(a);if(ready)proposeToChampion(a);
   }else{
-    v.fail++;v.note=(result.reasons||[]).join(' ; ').slice(0,200);
+    v.fail++;v.note=(result.error?'[erreur du vérificateur] ':'')+(result.reasons||[]).join(' ; ').slice(0,200);
     const safe=a.safe;a.w=safe.w.slice();a.c=safe.c.slice();a.pop=JSON.parse(JSON.stringify(safe.pop));a.active=safe.active|0; /* retour à la dernière version vérifiée */
-    trainNote='Évolution rejetée, retour à la version vérifiée : '+v.note;
+    trainNote=(result.error?'Vérification impossible':'Évolution rejetée')+', retour à la version vérifiée : '+v.note;
     saveAI(a);
   }
 }
