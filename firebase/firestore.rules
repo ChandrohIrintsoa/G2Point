@@ -18,6 +18,13 @@ service cloud.firestore {
       return value is string && value.size() >= 1 && value.size() <= 20;
     }
 
+    // Les dimensions doivent correspondre à une taille réellement prise en charge par le moteur.
+    function validBoardSize(w, h) {
+      return (w == 11 && h == 15)
+        || (w == 17 && h == 23)
+        || (w == 23 && h == 31);
+    }
+
     // Date d'expiration (purge via la politique TTL Firestore) : entre maintenant et 8 jours.
     function validExpiry() {
       return request.resource.data.expireAt is timestamp
@@ -43,8 +50,7 @@ service cloud.firestore {
         && request.resource.data.n in [2, 3, 4]
         && request.resource.data.tm is bool
         && (!request.resource.data.tm || request.resource.data.n == 4)
-        && request.resource.data.w in [11, 17, 23]
-        && request.resource.data.h in [15, 23, 31]
+        && validBoardSize(request.resource.data.w, request.resource.data.h)
         && request.resource.data.s0 == request.auth.uid
         && request.resource.data.s1 == ''
         && request.resource.data.s2 == ''
@@ -243,8 +249,7 @@ service cloud.firestore {
         && request.resource.data.host == request.auth.uid
         && request.resource.data.n in [2, 3, 4]
         && request.resource.data.tm is bool
-        && request.resource.data.w in [11, 17, 23]
-        && request.resource.data.h in [15, 23, 31]
+        && validBoardSize(request.resource.data.w, request.resource.data.h)
         && request.resource.data.createdAt == request.time
         && request.resource.data.expireAt is timestamp
         && request.resource.data.expireAt > request.time
