@@ -176,9 +176,11 @@ body.board-fs #chatToasts{position:fixed;z-index:10030;top:calc(12px + env(safe-
 
 /* ===== Correctifs de design ===== */
 /* Les grilles de boutons ne débordent plus de l'écran sur mobile. */
-.stack{grid-template-columns:minmax(0,1fr)}
-.stack>*{min-width:0}
-.row>button{flex:0 0 auto}
+@media(max-width:600px){
+  .stack{grid-template-columns:minmax(0,1fr)}
+  .stack>*{min-width:0}
+  .row>button{flex:0 1 auto;min-width:0}
+}
 /* Tutoriel : boutons centrés et de même largeur. */
 .win-box .row{justify-content:center}
 .win-box .row>button{flex:1 1 0;max-width:180px}
