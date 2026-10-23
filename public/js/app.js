@@ -602,7 +602,7 @@ function upd(){
   if(puz>=0&&puzState=='ok')m='Réussi ! 🏆 '+S.sc[0]+' point'+(S.sc[0]>1?'s':'')+' capturé'+(S.sc[0]>1?'s':'')+'.';
   else if(puz>=0&&puzState=='ko')m='Raté : ce coup ne capture pas assez de points. On recommence…';
   else if(puz>=0)m='Objectif : capturer '+puzs[puz].goal+' point'+(puzs[puz].goal>1?'s':'')+' en un seul coup.';
-  else if(mode=='online'&&!ready)m='En attente des joueurs ('+filled+'/'+N+'). Partagez le code '+code+'.';
+  else if(mode=='online'&&!ready)m=lobbyCode===code?'Partie rapide : recherche d’autres joueurs ('+filled+'/'+N+')…':'En attente des joueurs ('+filled+'/'+N+'). Partagez le code '+code+'.';
   else if(o){
     const {fl,mx,w}=result();
     m=(fl>=0?nm(fl)+' a abandonné. ':'')+(w.length>1?'Égalité à '+mx+' point'+(mx>1?'s':''):nm(w[0])+' gagne avec '+mx+' point'+(mx>1?'s':''));
@@ -736,19 +736,34 @@ async function sendChatMessage(text,keep){
 
 const expiry=()=>firebase.firestore.Timestamp.fromMillis(Date.now()+7*864e5);
 const messageExpiry=()=>firebase.firestore.Timestamp.fromMillis(Date.now()+CHAT_TTL_MS);
+let pendingMove=false; /* un seul coup en ligne en vol : évite une série (run) calculée sur un état périmé */
 async function place(pt){
   if(!pt||!can()||S.o[pt[1]][pt[0]])return;
+  if(mode==='online'&&pendingMove){note('Coup précédent en cours d’envoi…');return}
   if(S.blk[pt[1]][pt[0]]){note('Territoire fermé : cette case est inaccessible.');return}
   note('');
   queueAIMoveLog(pt);
+  const prevCur=gameData&&Number.isInteger(gameData.cur)?gameData.cur:S.cur,prevRun=(gameData&&gameData.run)|0;
   moves=[...moves,pt];upd(); /* coup optimiste : visible tout de suite, sans attendre le serveur */
   if(mode==='local'){saveLocal();aiTurn();return}
-  const sentCode=code;
-  try{ /* une seule écriture (pas de transaction) ; les règles Firestore valident tour et case libre */
-    await ref.update({moves:firebase.firestore.FieldValue.arrayUnion(pt[1]*W+pt[0]),cur:S.cur,run:S.cur===(gameData&&Number.isInteger(gameData.cur)?gameData.cur:S.cur)?((gameData&&gameData.run)|0)+1:0,lastAt:firebase.firestore.FieldValue.serverTimestamp()});
-  }catch(e){
+  const sentCode=code,cell=pt[1]*W+pt[0],nextCur=S.cur,run=nextCur===prevCur?prevRun+1:0;
+  const FV=firebase.firestore.FieldValue;
+  /* Écritures tentées dans l'ordre : format actuel, puis formats compatibles avec des règles Firestore plus anciennes. */
+  const tries=[
+    {moves:FV.arrayUnion(cell),cur:nextCur,run,lastAt:FV.serverTimestamp()},
+    {moves:FV.arrayUnion(cell),cur:nextCur,lastAt:FV.serverTimestamp()},
+    {moves:FV.arrayUnion(cell),cur:nextCur}
+  ];
+  pendingMove=true;let lastErr=null;
+  try{
+    for(let i=0;i<tries.length;i++){
+      try{await ref.update(tries[i]);lastErr=null;break}
+      catch(e){lastErr=e;if(e&&e.code!=='permission-denied')break;if(i===0)await new Promise(r=>setTimeout(r,300))}
+    }
+  }finally{pendingMove=false}
+  if(lastErr){
     if(sentCode===code){moves=(gameData&&gameData.moves||[]).map(k=>[k%W,(k/W)|0]);S=null;upd()}
-    note('Coup non confirmé : vérifie le tour et la connexion, puis réessaie.');console.warn(e)
+    note(lastErr.code==='unavailable'?'Connexion perdue : le coup n’a pas été envoyé, réessaie.':'Coup refusé par le serveur : ce n’est peut-être plus ton tour, réessaie.');console.warn(lastErr)
   }
 }
 
@@ -846,22 +861,44 @@ async function cancelWaitingGame(c){
     return true;
   }catch(e){note(e.message||'Impossible de supprimer ce salon.');return false}
 }
-/* Partie rapide : salon public sans code (collection `lobby`), le premier salon compatible est rejoint, sinon on en crée un */
-function closeLobby(){const c=lobbyCode;lobbyCode='';if(c&&db)db.doc('lobby/'+c).delete().catch(()=>{})}
+/* Partie rapide : salon public sans code (collection `lobby`). On rejoint le plus ancien salon compatible ;
+   sinon on en crée un et on continue de chercher : si deux joueurs ont créé un salon en même temps,
+   le plus récent rejoint automatiquement l'autre (aucun code à partager). */
+let quickTimer=0;
+function stopQuickSearch(){clearInterval(quickTimer);quickTimer=0}
+function closeLobby(){stopQuickSearch();const c=lobbyCode;lobbyCode='';if(c&&db)db.doc('lobby/'+c).delete().catch(()=>{})}
+const lobbyMs=v=>v&&v.createdAt&&v.createdAt.toMillis?v.createdAt.toMillis():0;
+async function findLobbies(){
+  const snap=await db.collection('lobby').where('n','==',N).where('tm','==',TM).where('w','==',W).where('h','==',H).limit(20).get(),now=Date.now();
+  return snap.docs.map(d=>({id:d.id,v:d.data()})).filter(x=>x.v.host!==cid&&(!lobbyMs(x.v)||now-lobbyMs(x.v)<LOBBY_MAX_AGE_MS))
+    .sort((a,b)=>(lobbyMs(a.v)-lobbyMs(b.v))||(a.id<b.id?-1:1));
+}
 async function quickMatch(){
   if(!db||!authReady||!cid){note('La connexion en ligne n’est pas prête. Vérifiez Firebase et réessayez.');return}
-  readOpts();note('Recherche d’un adversaire…');
+  stopQuickSearch();readOpts();note('Recherche d’un adversaire…');
   try{
-    const snap=await db.collection('lobby').where('n','==',N).where('tm','==',TM).where('w','==',W).where('h','==',H).limit(10).get(),now=Date.now();
-    for(const d of snap.docs){
-      const v=d.data(),ts=v.createdAt&&v.createdAt.toMillis?v.createdAt.toMillis():now;
-      if(v.host===cid||now-ts>LOBBY_MAX_AGE_MS)continue;
-      if(await joinGame(d.id,true)){track('quick_match',{role:'join'});return}
-    }
+    for(const d of await findLobbies())if(await joinGame(d.id,true)){track('quick_match',{role:'join'});return}
     if(await createGame(true)){
-      try{await db.doc('lobby/'+code).set({host:cid,n:N,tm:TM,w:W,h:H,createdAt:firebase.firestore.FieldValue.serverTimestamp(),expireAt:firebase.firestore.Timestamp.fromMillis(Date.now()+LOBBY_TTL_MS)});lobbyCode=code;note('Partie rapide : en attente d’un adversaire…');upd()}
-      catch(e){console.warn(e);note('Salon créé, mais non public : partagez le code '+code+'.')}
+      const mine=code;
+      try{await db.doc('lobby/'+mine).set({host:cid,n:N,tm:TM,w:W,h:H,createdAt:firebase.firestore.FieldValue.serverTimestamp(),expireAt:firebase.firestore.Timestamp.fromMillis(Date.now()+LOBBY_TTL_MS)});lobbyCode=mine;note('Partie rapide : recherche d’un adversaire…');upd()}
+      catch(e){console.warn(e);note('Salon créé, mais non public : partagez le code '+mine+'.');return}
       track('quick_match',{role:'host'});
+      let busy=false,myMs=0;
+      quickTimer=setInterval(async()=>{
+        if(busy)return;
+        if(code!==mine||lobbyCode!==mine||ready||filled>1||(gameData&&(gameData.moves||[]).length)){stopQuickSearch();return}
+        busy=true;
+        try{
+          if(!myMs){const me0=await db.doc('lobby/'+mine).get();myMs=lobbyMs(me0.data())}
+          const older=(await findLobbies()).filter(x=>myMs&&(lobbyMs(x.v)<myMs||(lobbyMs(x.v)===myMs&&x.id<mine)));
+          for(const d of older){
+            if(code!==mine||filled>1)break;
+            const prev=mine;lobbyCode='';
+            if(await joinGame(d.id,true)){stopQuickSearch();db.doc('lobby/'+prev).delete().catch(()=>{});db.doc('games/'+prev).delete().catch(()=>{});dropLive(prev);track('quick_match',{role:'merge'});return}
+            lobbyCode=prev;
+          }
+        }catch(e){console.warn(e)}finally{busy=false}
+      },3000);
     }
   }catch(e){err(e)}
 }

@@ -55,3 +55,16 @@ jobs:
           firebaseServiceAccount: "${{ secrets.FIREBASE_SERVICE_ACCOUNT_G2POINT }}"
           projectId: g2ppoint
           channelId: live
+      # Les règles Firestore doivent être publiées avec le site : sinon le jeu en ligne envoie des coups
+      # que d'anciennes règles refusent (« Coup non confirmé »).
+      - name: Installer Node.js (règles Firestore)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Déployer les règles Firestore
+        env:
+          SA_JSON: "${{ secrets.FIREBASE_SERVICE_ACCOUNT_G2POINT }}"
+        run: |
+          printf '%s' "$SA_JSON" > "$RUNNER_TEMP/sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
+          npx --yes firebase-tools deploy --only firestore:rules --project g2ppoint --non-interactive
