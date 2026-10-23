@@ -19,6 +19,8 @@ test('dimensions du plateau : seules les trois tailles du moteur sont acceptées
   await assertFails(setDoc(ref('a'),{...base(),w:17,h:15}));
   await assertFails(setDoc(ref('a'),{...base(),w:23,h:23}));
   await assertSucceeds(setDoc(ref('a'),base()));
+  await assertSucceeds(setDoc(doc(db('a'),'games','FGHJK'),{...base(),w:17,h:23}));
+  await assertSucceeds(setDoc(doc(db('a'),'games','LMNPQ'),{...base(),w:23,h:31}));
 });
 test('création et jonction',join);
 test('invité sans compte refusé',async()=>assertFails(getDoc(doc(env.unauthenticatedContext().firestore(),'games','ABCDE'))));
