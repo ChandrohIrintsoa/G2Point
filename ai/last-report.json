@@ -1,7 +1,318 @@
 {
- "at": 1792653449921,
- "version": 1,
- "tried": 0,
- "promoted": 1,
- "reports": []
+ "at": 1792738371511,
+ "version": 3,
+ "tried": 237,
+ "promoted": 2,
+ "reports": [
+  {
+   "round": 19,
+   "src": "mutation",
+   "screen": 0.5,
+   "score": 0.45,
+   "pass": false,
+   "reasons": [
+    "match global 0.45 < 0.56"
+   ]
+  },
+  {
+   "round": 20,
+   "src": "mutation",
+   "screen": 0.6,
+   "score": 0.544,
+   "pass": false,
+   "reasons": [
+    "perd contre v2 : 0.40 < 0.5",
+    "match global 0.54 < 0.56"
+   ]
+  },
+  {
+   "round": 21,
+   "src": "mutation",
+   "screen": 0.5,
+   "score": 0.5,
+   "pass": false,
+   "reasons": [
+    "match global 0.50 < 0.56"
+   ]
+  },
+  {
+   "round": 22,
+   "src": "mutation",
+   "screen": 0.6,
+   "score": 0.463,
+   "pass": false,
+   "reasons": [
+    "match global 0.46 < 0.56"
+   ]
+  },
+  {
+   "round": 23,
+   "src": "mutation",
+   "screen": 0.65,
+   "score": 0.531,
+   "pass": false,
+   "reasons": [
+    "perd contre v2 : 0.40 < 0.5",
+    "match global 0.53 < 0.56"
+   ]
+  },
+  {
+   "round": 24,
+   "src": "mutation",
+   "screen": 0.6,
+   "score": 0.469,
+   "pass": false,
+   "reasons": [
+    "match global 0.47 < 0.56"
+   ]
+  },
+  {
+   "round": 25,
+   "src": "mutation",
+   "screen": 0.6,
+   "score": 0.506,
+   "pass": false,
+   "reasons": [
+    "perd contre v1 : 0.30 < 0.5",
+    "perd contre v2 : 0.40 < 0.5",
+    "match global 0.51 < 0.56"
+   ]
+  },
+  {
+   "round": 26,
+   "src": "mutation",
+   "screen": 0.55,
+   "score": 0.45,
+   "pass": false,
+   "reasons": [
+    "match global 0.45 < 0.56"
+   ]
+  },
+  {
+   "round": 27,
+   "src": "mutation",
+   "screen": 0.75,
+   "score": 0.362,
+   "pass": false,
+   "reasons": [
+    "match global 0.36 < 0.56"
+   ]
+  },
+  {
+   "round": 28,
+   "src": "mutation",
+   "screen": 0.55,
+   "score": 0.544,
+   "pass": false,
+   "reasons": [
+    "match global 0.54 < 0.56"
+   ]
+  },
+  {
+   "round": 29,
+   "src": "mutation",
+   "screen": 0.6,
+   "score": 0.45,
+   "pass": false,
+   "reasons": [
+    "perd contre v1 : 0.40 < 0.5",
+    "match global 0.45 < 0.56"
+   ]
+  },
+  {
+   "round": 30,
+   "src": "mutation",
+   "screen": 0.65,
+   "score": 0.512,
+   "pass": false,
+   "reasons": [
+    "match global 0.51 < 0.56"
+   ]
+  },
+  {
+   "round": 31,
+   "src": "mutation",
+   "screen": 0.5,
+   "score": 0.5,
+   "pass": false,
+   "reasons": [
+    "match global 0.50 < 0.56"
+   ]
+  },
+  {
+   "round": 32,
+   "src": "mutation",
+   "screen": 0.6,
+   "score": 0.475,
+   "pass": false,
+   "reasons": [
+    "match global 0.47 < 0.56"
+   ]
+  },
+  {
+   "round": 33,
+   "src": "mutation",
+   "screen": 0.6,
+   "score": 0.525,
+   "pass": false,
+   "reasons": [
+    "perd contre v1 : 0.40 < 0.5",
+    "match global 0.53 < 0.56"
+   ]
+  },
+  {
+   "round": 34,
+   "src": "mutation",
+   "screen": 0.55,
+   "score": 0.512,
+   "pass": false,
+   "reasons": [
+    "match global 0.51 < 0.56"
+   ]
+  },
+  {
+   "round": 35,
+   "src": "mutation",
+   "screen": 0.65,
+   "score": 0.487,
+   "pass": false,
+   "reasons": [
+    "perd contre v2 : 0.40 < 0.5",
+    "match global 0.49 < 0.56"
+   ]
+  },
+  {
+   "round": 36,
+   "src": "mutation",
+   "screen": 0.55,
+   "score": 0.537,
+   "pass": false,
+   "reasons": [
+    "match global 0.54 < 0.56"
+   ]
+  },
+  {
+   "round": 37,
+   "src": "mutation",
+   "screen": 0.7,
+   "score": 0.481,
+   "pass": false,
+   "reasons": [
+    "match global 0.48 < 0.56"
+   ]
+  },
+  {
+   "round": 38,
+   "src": "mutation",
+   "screen": 0.55,
+   "score": 0.475,
+   "pass": false,
+   "reasons": [
+    "perd contre v1 : 0.40 < 0.5",
+    "perd contre v2 : 0.30 < 0.5",
+    "match global 0.47 < 0.56"
+   ]
+  },
+  {
+   "round": 39,
+   "src": "mutation",
+   "screen": 0.55,
+   "score": 0.463,
+   "pass": false,
+   "reasons": [
+    "match global 0.46 < 0.56"
+   ]
+  },
+  {
+   "round": 40,
+   "src": "mutation",
+   "screen": 0.7,
+   "score": 0.444,
+   "pass": false,
+   "reasons": [
+    "match global 0.44 < 0.56"
+   ]
+  },
+  {
+   "round": 41,
+   "src": "mutation",
+   "screen": 0.55,
+   "score": 0.556,
+   "pass": false,
+   "reasons": [
+    "match global 0.56 < 0.56"
+   ]
+  },
+  {
+   "round": 42,
+   "src": "mutation",
+   "screen": 0.6,
+   "score": 0.431,
+   "pass": false,
+   "reasons": [
+    "match global 0.43 < 0.56"
+   ]
+  },
+  {
+   "round": 43,
+   "src": "mutation",
+   "screen": 0.6,
+   "score": 0.487,
+   "pass": false,
+   "reasons": [
+    "perd contre v2 : 0.30 < 0.5",
+    "match global 0.49 < 0.56"
+   ]
+  },
+  {
+   "round": 44,
+   "src": "mutation",
+   "screen": 0.55,
+   "score": 0.463,
+   "pass": false,
+   "reasons": [
+    "match global 0.46 < 0.56"
+   ]
+  },
+  {
+   "round": 45,
+   "src": "mutation",
+   "screen": 0.55,
+   "score": 0.487,
+   "pass": false,
+   "reasons": [
+    "match global 0.49 < 0.56"
+   ]
+  },
+  {
+   "round": 46,
+   "src": "mutation",
+   "screen": 0.6,
+   "score": 0.556,
+   "pass": false,
+   "reasons": [
+    "match global 0.56 < 0.56"
+   ]
+  },
+  {
+   "round": 47,
+   "src": "mutation",
+   "screen": 0.55,
+   "score": 0.438,
+   "pass": false,
+   "reasons": [
+    "match global 0.44 < 0.56"
+   ]
+  },
+  {
+   "round": 48,
+   "src": "mutation",
+   "screen": 0.5,
+   "score": 0.463,
+   "pass": false,
+   "reasons": [
+    "match global 0.46 < 0.56"
+   ]
+  }
+ ]
 }
