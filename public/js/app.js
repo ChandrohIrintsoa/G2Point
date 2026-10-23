@@ -925,8 +925,11 @@ $('rematch').onclick=async()=>{
 };
 $('end').onclick=async()=>{
   if(!confirm('Terminer la partie maintenant ?'))return;
-  if(mode=='local'){ended=true;upd()}
-  else try{await ref.update({ended:true})}catch(e){err(e)}
+  if(mode==='local'){ended=true;upd();return}
+  if(mode==='online'&&ref){
+    try{await ref.update({ended:true});note('Partie terminée. Code : '+code)}
+    catch(e){console.warn('[G2Point] Clôture Firestore refusée.',e);note(e&&e.code==='permission-denied'?'Firestore refuse la clôture de cette partie. Le code '+code+' reste disponible ; les règles Firestore doivent autoriser le joueur à définir ended=true.':'Impossible de terminer la partie : '+(e&&e.message||e))}
+  }
 };
 $('back').onclick=()=>{if(isBoardFullscreen())setBoardFullscreen(false);closeLobby();$('win').hidden=true;clearTimeout(winTimer);clearTimeout(aiTimer);unsub&&unsub();unsub=null;unsubChat&&unsubChat();unsubChat=null;$('chatDialog').hidden=true;mode='';moves=[];S=null;gameData=null;resetMatchFx();show(false);renderOnlinePanel({n:N})};
 
@@ -1230,6 +1233,7 @@ function showWin(){
     const terr=S.sc.map(()=>new Set());for(const {t,c} of S.loops)c.cells.forEach(([a,b])=>terr[t].add(b*W+a));
     const mx=Math.max(...S.big),bi=S.big.indexOf(mx);
     const rows=[['Coups joués',S.n],['Plus grosse capture',mx>0?nm(bi)+' · '+mx+' point'+(mx>1?'s':''):'—'],...S.sc.map((v,i)=>['Territoire '+label(i),Math.round(terr[i].size*100/(W*H))+' %'])];
+    if(mode==='online'&&code)rows.unshift(['Code de la partie',code]);
     newAch.forEach(t=>rows.push([t,'']));
     $('winRecap').replaceChildren(...rows.map(([a,b])=>{const li=document.createElement('li');li.append(mk('span',a),mk('span',b));return li}));
     $('winRematch').hidden=!canUseRematch();
