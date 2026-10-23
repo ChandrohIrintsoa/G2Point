@@ -927,7 +927,7 @@ $('end').onclick=async()=>{
   if(!confirm('Terminer la partie maintenant ?'))return;
   if(mode==='local'){ended=true;upd();return}
   if(mode==='online'&&ref){
-    try{await ref.update({ended:true});note('Partie terminée. Code : '+code)}
+    try{await ref.update({ended:true,forfeit:me});note('Partie terminée par abandon. Code : '+code)}
     catch(e){console.warn('[G2Point] Clôture Firestore refusée.',e);note(e&&e.code==='permission-denied'?'Firestore refuse la clôture de cette partie. Le code '+code+' reste disponible ; les règles Firestore doivent autoriser le joueur à définir ended=true.':'Impossible de terminer la partie : '+(e&&e.message||e))}
   }
 };
