@@ -928,7 +928,7 @@ $('end').onclick=async()=>{
   if(mode==='local'){ended=true;upd();return}
   if(mode==='online'&&ref){
     try{await ref.update({ended:true,forfeit:me});note('Partie terminée par abandon. Code : '+code)}
-    catch(e){console.warn('[G2Point] Clôture Firestore refusée.',e);note(e&&e.code==='permission-denied'?'Firestore refuse la clôture de cette partie. Le code '+code+' reste disponible ; les règles Firestore doivent autoriser le joueur à définir ended=true.':'Impossible de terminer la partie : '+(e&&e.message||e))}
+    catch(e){console.warn('[G2Point] Clôture Firestore refusée.',e);note(e&&e.code==='permission-denied'?'Firestore refuse l’abandon de cette partie. Le code '+code+' reste disponible ; vérifiez les règles Firestore et votre siège dans le salon.':'Impossible de terminer la partie : '+(e&&e.message||e))}
   }
 };
 $('back').onclick=()=>{if(isBoardFullscreen())setBoardFullscreen(false);closeLobby();$('win').hidden=true;clearTimeout(winTimer);clearTimeout(aiTimer);unsub&&unsub();unsub=null;unsubChat&&unsubChat();unsubChat=null;$('chatDialog').hidden=true;mode='';moves=[];S=null;gameData=null;resetMatchFx();show(false);renderOnlinePanel({n:N})};
