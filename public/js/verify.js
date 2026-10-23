@@ -68,20 +68,32 @@ function playMatch(E,T,cand,base,{games=8,seed=1,size=[9,9],lvl=1}={}){
   const n=w+l+d;return{w,l,d,n,score:n?(w+d/2)/n:.5};
 }
 
-/* Porte de vérification. cand/base : {w,book,sbook,antiBook,antiSBook}. opts.hof : [{params,name}] versions anciennes. */
+/* Porte de vérification, FERMÉE PAR DÉFAUT : sans preuve suffisante (trop peu de parties terminées, banque de techniques vide,
+   match contre un ancien champion sans partie terminée), le candidat est refusé. Une exécution dégradée n'est jamais une réussite.
+   cand/base : {w,book,sbook,antiBook,antiSBook}. opts.hof : [{params,name}] versions anciennes. */
 function gate(E,T,cand,base,opts={}){
-  const o={games:8,hofGames:4,minScore:.4,minHof:.35,techTol:.1,size:[9,9],seed:1,suite:null,suiteSize:12,hof:[],...opts};
-  const suite=o.suite||buildSuite(E,T,{seed:o.seed+101,n:o.suiteSize,size:o.size}),reasons=[],stats={};
+  const o={games:8,hofGames:4,minScore:.4,minHof:.35,techTol:.1,size:[9,9],seed:1,suite:null,suiteSize:12,hof:[],minComplete:null,minSuite:1,allowEmptySuite:false,...opts};
+  const need=Math.max(1,o.minComplete==null?Math.ceil(o.games/2):o.minComplete),reasons=[],stats={};
+  const suite=o.suite||buildSuite(E,T,{seed:o.seed+101,n:o.suiteSize,size:o.size});
   const m=playMatch(E,T,cand,base,{games:o.games,seed:o.seed,size:o.size});stats.match=m;
-  if(m.n>0&&m.score<o.minScore)reasons.push('match contre la référence : '+m.score.toFixed(2)+' < '+o.minScore);
+  if(m.n<need)reasons.push('trop peu de parties terminées : '+m.n+' < '+need);
+  else if(m.score<o.minScore)reasons.push('match contre la référence : '+m.score.toFixed(2)+' < '+o.minScore);
+  if(!o.allowEmptySuite&&suite.length<o.minSuite)reasons.push('banque de techniques vide ou incomplète : '+suite.length+' < '+o.minSuite);
   const tc=techScore(E,cand,suite),tb=techScore(E,base,suite);stats.tech={cand:+tc.toFixed(3),base:+tb.toFixed(3),n:suite.length};
   if(tc<tb-o.techTol)reasons.push('régression sur les techniques : '+tc.toFixed(2)+' < '+(tb-o.techTol).toFixed(2));
   stats.hof=[];
+  const needHof=Math.max(1,Math.ceil(o.hofGames/2));
   for(const h of o.hof||[]){
     const r=playMatch(E,T,cand,h.params,{games:o.hofGames,seed:o.seed+7,size:o.size});stats.hof.push({name:h.name,score:+r.score.toFixed(2),n:r.n});
-    if(r.n>0&&r.score<o.minHof)reasons.push('perd contre '+h.name+' : '+r.score.toFixed(2)+' < '+o.minHof);
+    if(r.n<needHof)reasons.push('trop peu de parties terminées contre '+h.name+' : '+r.n+' < '+needHof);
+    else if(r.score<o.minHof)reasons.push('perd contre '+h.name+' : '+r.score.toFixed(2)+' < '+o.minHof);
   }
   return{pass:reasons.length===0,reasons,stats};
 }
-return{buildSuite,techScore,playMatch,gate,position,gainOf,replyDanger,allMoves};
+/* Une exception du vérificateur est un REFUS (jamais une promotion) ; `error` permet à l'interface de le distinguer d'une vraie régression. */
+function safeGate(E,T,cand,base,opts){
+  try{return gate(E,T,cand,base,opts)}
+  catch(e){return{pass:false,error:true,reasons:['vérification impossible : '+String(e&&e.message||e)],stats:{}}}
+}
+return{buildSuite,techScore,playMatch,gate,safeGate,position,gainOf,replyDanger,allMoves};
 });

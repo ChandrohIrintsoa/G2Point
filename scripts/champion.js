@@ -83,8 +83,8 @@ async function main(){
     /* 3) apprentissage par auto-parties, puis porte complète */
     sims+=selfLearn(best.cand,champ,cfg.gateGames/2,seed);
     let gateOk=true,stats=null;
-    const g1=V.gate(E,T,params(best.cand),params(champ),{games:cfg.gateGames/2,hofGames:cfg.hofGames/2,minScore:cfg.minScore,minHof:cfg.minHof,techTol:cfg.techTol,size:cfg.sizes[0],seed,suite,hof:hofParams()});
-    const g2=V.gate(E,T,params(best.cand),params(champ),{games:cfg.gateGames/2,hofGames:0,minScore:cfg.minScore,techTol:1,size:cfg.sizes[1],seed:seed+1,suite:[],hof:[]});
+    const g1=V.gate(E,T,params(best.cand),params(champ),{games:cfg.gateGames/2,hofGames:cfg.hofGames/2,minScore:cfg.minScore,minHof:cfg.minHof,techTol:cfg.techTol,size:cfg.sizes[0],seed,suite,minSuite:20,hof:hofParams()});
+    const g2=V.gate(E,T,params(best.cand),params(champ),{games:cfg.gateGames/2,hofGames:0,minScore:cfg.minScore,techTol:1,size:cfg.sizes[1],seed:seed+1,suite:[],allowEmptySuite:true,hof:[]});
     sims+=cfg.gateGames;stats={g9:g1.stats,g11:g2.stats.match};
     const total=(g1.stats.match.score*g1.stats.match.n+g2.stats.match.score*g2.stats.match.n)/Math.max(1,g1.stats.match.n+g2.stats.match.n);
     const reasons=[...g1.reasons.filter(r=>!/^match contre la référence/.test(r)),...(total<cfg.minScore?[`match global ${total.toFixed(2)} < ${cfg.minScore}`]:[])];

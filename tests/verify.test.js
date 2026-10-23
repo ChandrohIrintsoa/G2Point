@@ -31,3 +31,32 @@ test('porte : stable (mêmes entrées, même verdict)',()=>{
   const a=V.gate(E,T,zero,def,{games:2,suite:SUITE.slice(0,8),seed:5}),b=V.gate(E,T,zero,def,{games:2,suite:SUITE.slice(0,8),seed:5});
   assert.deepEqual(a.stats,b.stats);
 });
+
+/* ---- porte fermée par défaut (audit du 22 octobre, points 1 et 2) ---- */
+test('fermée : aucune partie terminée => refus, même si rien n\'a « perdu »',()=>{
+  const g=V.gate(E,T,def,def,{games:4,size:[9,9],suite:SUITE.slice(0,8),minComplete:1});
+  assert.equal(g.pass,true,'référence : identique et parties jouées');
+  // match impossible à terminer : plafond de coups minuscule via une taille dégénérée n'existe pas ; on simule n=0 par games=0
+  const z=V.gate(E,T,def,def,{games:0,suite:SUITE.slice(0,8)});
+  assert.equal(z.pass,false);assert.ok(z.reasons.some(r=>/trop peu de parties terminées/.test(r)),z.reasons.join(';'));
+});
+test('fermée : banque de techniques vide => refus (sauf demande explicite)',()=>{
+  const g=V.gate(E,T,def,def,{games:2,suite:[]});
+  assert.equal(g.pass,false);assert.ok(g.reasons.some(r=>/banque de techniques vide/.test(r)));
+  const ok=V.gate(E,T,def,def,{games:2,suite:[],allowEmptySuite:true});
+  assert.equal(ok.pass,true,ok.reasons.join(';'));
+});
+test('fermée : match contre un ancien champion sans partie terminée => refus',()=>{
+  const g=V.gate(E,T,def,def,{games:2,suite:SUITE.slice(0,8),hofGames:0,hof:[{name:'v1',params:def}]});
+  assert.equal(g.pass,false);assert.ok(g.reasons.some(r=>/contre v1/.test(r)),g.reasons.join(';'));
+});
+test('fermée : une exception du vérificateur est un REFUS (pass:false, error:true), jamais une validation',()=>{
+  const bad={w:'pas-un-tableau'};
+  const r=V.safeGate({...E,aiMove(){throw new Error('panne simulée')}},T,def,bad,{games:2,suite:SUITE.slice(0,4)});
+  assert.equal(r.pass,false);assert.equal(r.error,true);assert.match(r.reasons[0],/vérification impossible : panne simulée/);
+});
+test('le Worker d\'entraînement n\'a plus de chemin « exception => pass:true »',()=>{
+  const src=fs.readFileSync(path.join(__dirname,'..','public','js','train-worker.js'),'utf8');
+  assert.ok(!/pass:\s*true/.test(src),'aucun pass:true dans train-worker.js');
+  assert.match(src,/safeGate/);
+});
