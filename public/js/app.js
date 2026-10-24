@@ -75,6 +75,46 @@ function layer(x,w,h){
         const [x1,y1]=P(a,b),[x2,y2]=P(u,v);x.beginPath();x.moveTo(x1,y1);x.lineTo(x2,y2);x.stroke();
       }
     }
+    /* Clôture du périmètre : polygone fermé tracé par tri angulaire autour du centroïde de chaque composante
+       connectée du périmètre. Garantit que le périmètre est visiblement CLOS, même si une cellule du périmètre
+       a été capturée ultérieurement (le tracé segmenté ci-dessus dépend de `live(k)` et pourrait alors présenter
+       un trou). Le polygone ignore la vivacité : il relie TOUTES les cellules du périmètre historique. */
+    const N8P=[[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
+    const perimAll=[...c.bd].map(k=>{const a=k%W,b=(k-a)/W;return[a,b]});
+    if(perimAll.length>=3){
+      const visited=new Set(),comps=[];
+      for(const [a0,b0] of perimAll){
+        const key0=a0+','+b0;
+        if(visited.has(key0))continue;
+        const comp=[];const stack=[[a0,b0]];visited.add(key0);
+        while(stack.length){
+          const [a,b]=stack.pop();comp.push([a,b]);
+          for(const [dx,dy] of N8P){
+            const u=a+dx,v=b+dy;
+            if(u<0||v<0||u>=W||v>=H)continue;
+            const key=u+','+v;
+            if(visited.has(key))continue;
+            if(c.bd.has(v*W+u)){visited.add(key);stack.push([u,v])}
+          }
+        }
+        if(comp.length>=3)comps.push(comp);
+      }
+      const prevW=x.lineWidth,prevBlur=x.shadowBlur;
+      x.lineWidth=cs*0.16;x.shadowBlur=cs*.6;
+      for(const comp of comps){
+        const cx=comp.reduce((s,[a])=>s+a,0)/comp.length;
+        const cy=comp.reduce((s,[,b])=>s+b,0)/comp.length;
+        const sorted=comp.slice().sort((p,q)=>{
+          const ap=Math.atan2(p[1]-cy,p[0]-cx);
+          const aq=Math.atan2(q[1]-cy,q[0]-cx);
+          return ap-aq;
+        });
+        x.beginPath();
+        sorted.forEach(([a,b],i)=>{const [px,py]=P(a,b);if(i===0)x.moveTo(px,py);else x.lineTo(px,py)});
+        x.closePath();x.stroke();
+      }
+      x.lineWidth=prevW;x.shadowBlur=prevBlur;
+    }
     x.shadowBlur=0;
   }
   const R=cs*STONE_R,q=cs*LINE_W;
