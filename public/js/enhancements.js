@@ -27,8 +27,7 @@ setInterval(leaveFullscreenOnResult,250);
 
 /* Laboratoire manuel retiré : accès au moniteur d'observation par appui long de 15 s. */
 const lab=$('aiLab'),launch=$('aiLabLaunch'),summary=$('progSummary');
-if(lab)lab.hidden=true;
-if(launch)launch.hidden=true;
+if(lab)lab.hidden=true; /* Le bouton du laboratoire reste accessible dans le menu. */
 const monitor=document.createElement('section');monitor.id='aiObserver';monitor.className='ai-observer';monitor.hidden=true;monitor.innerHTML='<header><div><small>APPRENTISSAGE AUTONOME</small><h2>Observatoire IA</h2></div><button type="button" id="observerClose">Fermer</button></header><p>L’IA observe les coups, les menaces et les trajectoires possibles autour de chaque point.</p><div class="observer-stats" id="observerStats"></div><button type="button" class="pri" id="observerLive">Demander une simulation en direct</button><div class="observer-log" id="observerLog" aria-live="polite">En attente d’une partie…</div><button type="button" id="observerClear">Effacer le journal visuel</button>';
 document.body.append(monitor);
 /* Panneau « Entraînement continu » : boucle IA contre IA (voir app.js, window.G2Train). */
@@ -194,10 +193,12 @@ function openLive(){
   monitor.hidden=true;if(panel)panel.hidden=true;
   const gt=$('gameDockToggle');if(gt){gt.setAttribute('aria-expanded','false');gt.textContent='☰ Menu'}
   demo.hidden=false;
+  demo.style.inset='0';demo.style.transform='none';demo.style.width='100vw';demo.style.height='100dvh';demo.style.maxHeight='none';demo.style.maxWidth='none';demo.style.borderRadius='0';
   if(!live.s){const cur=$('size')&&$('size').value;if(SIZES[cur])$('demoSize').value=cur;liveReset()}else liveDraw();
 }
-function closeLive(){liveStop();demo.hidden=true}
+function closeLive(){liveStop();demo.hidden=true;['inset','transform','width','height','max-height','max-width','border-radius'].forEach(k=>demo.style.removeProperty(k))}
 $('demoClose').onclick=closeLive;
+$('aiLiveLaunch').onclick=openLive;
 $('demoStep').onclick=()=>{liveStop();liveStep()};
 $('demoRun').onclick=()=>{
   if(live.running){liveStop();return}
