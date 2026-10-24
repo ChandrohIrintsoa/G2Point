@@ -72,7 +72,7 @@ monitor.innerHTML=`
       </div>
 
       <div class="wr-card wr-card--war">
-        <div class="wr-card__head"><span class="wr-card__title">Champ de bataille en direct</span><span class="wr-card__tag" id="wrWarTag">Idle</span></div>
+        <div class="wr-card__head"><span class="wr-card__title">Champ de bataille</span><span class="wr-card__tag" id="wrWarTag">Idle</span></div>
         <div class="wr-war">
           <div class="wr-war__team wr-war__team--red">
             <span class="wr-war__name">Rouge</span>
@@ -91,6 +91,41 @@ monitor.innerHTML=`
         <button type="button" class="pri wr-war__cta" id="observerLive">Lancer la guerre IA</button>
       </div>
 
+      <div class="wr-card wr-card--autorun">
+        <div class="wr-card__head"><span class="wr-card__title">Lancement automatique</span><span class="wr-card__tag" id="wrAutoTag">Off</span></div>
+        <div class="wr-autorun">
+          <label class="wr-toggle">
+            <input type="checkbox" id="wrAutoStart">
+            <span class="wr-toggle__track"><span class="wr-toggle__thumb"></span></span>
+            <span class="wr-toggle__label">Démarrer à l’ouverture</span>
+          </label>
+          <label class="wr-toggle">
+            <input type="checkbox" id="wrBgRun">
+            <span class="wr-toggle__track"><span class="wr-toggle__thumb"></span></span>
+            <span class="wr-toggle__label">Tourner en arrière-plan</span>
+          </label>
+          <div class="wr-autorun-row">
+            <label>Vitesse
+              <select id="wrSpeed"><option value="slow">Lente</option><option value="normal" selected>Normale</option><option value="fast">Rapide</option><option value="turbo">Turbo</option></select>
+            </label>
+            <label>Terrain
+              <select id="wrSize"><option value="11x15" selected>Petit</option><option value="17x23">Moyen</option><option value="23x31">Grand</option></select>
+            </label>
+            <label>Niveau IA
+              <select id="wrLevel"><option value="0">Facile</option><option value="1" selected>Normal</option><option value="2">Difficile</option></select>
+            </label>
+          </div>
+          <div class="wr-autorun-loop">
+            <label class="wr-toggle">
+              <input type="checkbox" id="wrLoop" checked>
+              <span class="wr-toggle__track"><span class="wr-toggle__thumb"></span></span>
+              <span class="wr-toggle__label">Rejouer en boucle</span>
+            </label>
+            <span class="wr-autorun-info" id="wrLoopInfo">—</span>
+          </div>
+        </div>
+      </div>
+
       <div class="wr-card wr-card--chart">
         <div class="wr-card__head"><span class="wr-card__title">Évolution temporelle</span><span class="wr-card__tag">60s</span></div>
         <canvas class="wr-chart__canvas" id="wrChart" aria-label="Graphique d évolution IA"></canvas>
@@ -98,12 +133,22 @@ monitor.innerHTML=`
           <span class="wr-legend wr-legend--red"><span class="wr-legend__dot"></span>Rouge</span>
           <span class="wr-legend wr-legend--cyan"><span class="wr-legend__dot"></span>Cyan</span>
           <span class="wr-legend wr-legend--gold"><span class="wr-legend__dot"></span>Force</span>
+          <span class="wr-legend wr-legend--violet"><span class="wr-legend__dot"></span>Coups</span>
         </div>
       </div>
 
-      <div class="wr-card wr-card--log">
-        <div class="wr-card__head"><span class="wr-card__title">Journal de combat</span><button type="button" id="observerClear" class="wr-card__btn">Vider</button></div>
-        <div class="wr-log" id="observerLog" aria-live="polite"></div>
+      <div class="wr-card wr-card--board-log">
+        <div class="wr-card__head"><span class="wr-card__title">Terrain &amp; journal</span><span class="wr-card__tag" id="wrBoardTag">Idle</span></div>
+        <div class="wr-boardlog">
+          <div class="wr-boardlog__board">
+            <canvas id="wrMiniBoard" aria-label="Terrain live de la guerre IA"></canvas>
+            <div class="wr-boardlog__overlay" id="wrBoardOverlay">En attente</div>
+          </div>
+          <div class="wr-boardlog__log">
+            <div class="wr-log" id="observerLog" aria-live="polite"></div>
+            <button type="button" id="observerClear" class="wr-card__btn">Vider le journal</button>
+          </div>
+        </div>
       </div>
 
       <div class="wr-card wr-card--train">
@@ -157,15 +202,34 @@ $('trPause').onchange=()=>{trainApi()&&trainApi().setConfig({pauseMin:+$('trPaus
 $('trStreak').onchange=()=>{trainApi()&&trainApi().setConfig({streakLimit:+$('trStreak').value})};
 $('trSyncNow').onclick=()=>{if(window.G2Sync){window.G2Sync.now().then(renderTrain);renderTrain()}};
 $('trReset').onclick=()=>{if(confirm('Remettre à zéro les séries et statistiques de l’entraînement ?')){trainApi()&&trainApi().reset();renderTrain()}};
-$('observerClose').onclick=()=>monitor.hidden=true;
+$('observerClose').onclick=()=>{
+  monitor.hidden=true;
+  if(!autoCfg.bgRun){liveStop()}
+  else if(live.running){logTrajectory('Guerre IA continue en arrière-plan')}
+};
 $('observerClear').onclick=()=>$('observerLog').replaceChildren();
 
 function openObserver(){
   monitor.hidden=false;
   renderObserver();
   renderTrain();
+  syncAutoCfgUI();
+  updateAutoTag();
   if(typeof seedChart==='function')seedChart();
   if(typeof drawChart==='function')drawChart();
+  drawMiniBoard();
+  if(autoCfg.autoStart){
+    setTimeout(()=>{
+      if(monitor.hidden)return;
+      if(!live.running&&(!live.s||live.over)){
+        if(!live.s||live.over)liveReset();
+        live.running=true;setLive('live');
+        const btn=$('demoRun');if(btn)btn.textContent='Pause';
+        liveLoop();
+        logTrajectory('Guerre IA lancée automatiquement (autoStart)');
+      }
+    },300);
+  }
 }
 const wrOpenBtn=$('wrOpen');
 if(wrOpenBtn)wrOpenBtn.onclick=openObserver;
@@ -289,7 +353,7 @@ if(E&&typeof E.aiMove==='function'&&!E.__observing){
   E.__observing=true;
 }
 /* Simulation IA contre IA conservée uniquement dans l'observatoire caché, jamais dans le menu ☰. */
-const SIZES={'11x15':[11,15],'17x23':[17,23],'23x31':[23,31]},SPEEDS={slow:900,normal:420,fast:120},TAU=Math.PI*2,LIVE_NAMES=['Rouge','Cyan'];
+const SIZES={'11x15':[11,15],'17x23':[17,23],'23x31':[23,31]},SPEEDS={slow:900,normal:420,fast:120,turbo:50},TAU=Math.PI*2,LIVE_NAMES=['Rouge','Cyan'];
 const demo=document.createElement('section');demo.id='aiLiveDemo';demo.className='ai-observer ai-live-demo';demo.hidden=true;
 demo.setAttribute('role','dialog');demo.setAttribute('aria-label','Simulation IA en direct');
 demo.innerHTML='<header><div><small>SIMULATION EN DIRECT</small><h2>Terrain d’exercice IA</h2></div><button type="button" id="demoClose">Fermer</button></header>'
@@ -302,14 +366,35 @@ demo.innerHTML='<header><div><small>SIMULATION EN DIRECT</small><h2>Terrain d’
  +'<div class="demo-actions"><button type="button" class="pri" id="demoRun">Lancer la simulation</button><button type="button" id="demoStep">Un coup</button><button type="button" id="demoReset">Réinitialiser</button></div>';
 document.body.append(demo);
 const live={s:null,moves:0,running:false,timer:0,busy:false,last:null,flash:null,flashTeam:0,over:false};
+const autoCfg={autoStart:false,bgRun:false,loop:true,speed:'normal',size:'11x15',level:1,gamesPlayed:0};
+try{const saved=JSON.parse(localStorage.getItem('g2p.wrAuto')||'null');if(saved)Object.assign(autoCfg,saved)}catch(e){}
+function saveAutoCfg(){try{localStorage.setItem('g2p.wrAuto',JSON.stringify(autoCfg))}catch(e){}}
+function syncAutoCfgUI(){
+  const map={wrAutoStart:'autoStart',wrBgRun:'bgRun',wrLoop:'loop',wrSpeed:'speed',wrSize:'size',wrLevel:'level'};
+  for(const [id,key] of Object.entries(map)){
+    const el=document.getElementById(id);if(!el)continue;
+    if(el.type==='checkbox')el.checked=!!autoCfg[key];else el.value=autoCfg[key];
+  }
+}
+function currentSpeed(){const el=document.getElementById('wrSpeed');return el?el.value:autoCfg.speed}
+function currentSize(){const el=document.getElementById('wrSize');return el?el.value:autoCfg.size}
+function currentLevel(){const el=document.getElementById('wrLevel');return el?+el.value:autoCfg.level}
+function updateAutoTag(){
+  const tag=document.getElementById('wrAutoTag');if(!tag)return;
+  const any=autoCfg.autoStart||autoCfg.bgRun;
+  tag.textContent=autoCfg.bgRun?'BG':autoCfg.autoStart?'Auto':'Off';
+  tag.dataset.state=any?'on':'off';
+}
 const readAI=()=>{try{const a=JSON.parse(localStorage.getItem('g2p.ai')||'null');return a&&a.w&&a.book?a:{}}catch(e){return {}}};
-const aiParams=()=>{const a=readAI();return{w:a.w,book:a.book,lvl:+$('demoLevel').value}}; /* mémoire apprise de l'IA, en lecture seule */
+const aiParams=()=>{const a=readAI();return{w:a.w,book:a.book,lvl:currentLevel()}};
 function liveReset(){
   if(!E)return;
-  const [w,h]=SIZES[$('demoSize').value]||SIZES['11x15'];
+  const [w,h]=SIZES[currentSize()]||SIZES['11x15'];
   live.s=E.create(w,h,2,false);live.moves=0;live.last=null;live.flash=null;live.over=false;
   warState.moves=0;warState.redScore=0;warState.cyanScore=0;
-  $('demoThink').textContent='';liveStatus('Terrain '+w+' × '+h+' prêt. Rouge commence.');liveDraw();
+  const demoThinkEl=$('demoThink');if(demoThinkEl)demoThinkEl.textContent='';
+  liveStatus('Terrain '+w+' × '+h+' prêt. Rouge commence.');
+  liveDraw();drawMiniBoard();
   if(!monitor.hidden)renderObserver();
 }
 function liveStatus(text){const el=$('demoStatus');if(el)el.textContent=text}
@@ -318,10 +403,17 @@ function liveFinish(){
   live.over=true;liveStop();const s=live.s,d=s.sc[0]-s.sc[1];
   warState.redScore=s.sc[0];warState.cyanScore=s.sc[1];
   setLive('paused');
+  autoCfg.gamesPlayed++;
+  saveAutoCfg();
+  const loopInfo=document.getElementById('wrLoopInfo');if(loopInfo)loopInfo.textContent=autoCfg.gamesPlayed+' partie(s) jouées';
   liveStatus('Terminé après '+live.moves+' coups · '+liveScore()+' · '+(d===0?'égalité':LIVE_NAMES[d>0?0:1]+' gagne')+'.');
-  $('demoRun').textContent='Relancer';liveDraw();
+  const demoRunBtn=$('demoRun');if(demoRunBtn)demoRunBtn.textContent='Relancer';
+  liveDraw();drawMiniBoard();
   if(!monitor.hidden)renderObserver();
   logTrajectory('Partie terminée : '+liveScore()+' · '+(d===0?'égalité':LIVE_NAMES[d>0?0:1]+' gagne'));
+  if(autoCfg.loop&&monitor&&!monitor.hidden){
+    setTimeout(()=>{if(!monitor.hidden&&autoCfg.loop){liveReset();live.running=true;setLive('live');liveLoop();}},800);
+  }
 }
 function liveStep(){
   if(!E||live.busy)return;
@@ -337,7 +429,7 @@ function liveStep(){
     const think=trajectory.length?trajectory[trajectory.length-1].replace(/^\S+ — /,''):'';
     const demoThinkEl=$('demoThink');if(demoThinkEl)demoThinkEl.textContent=think;
     liveStatus('Coup '+live.moves+' · '+liveScore()+(s.bonus?' · capture, '+LIVE_NAMES[mover]+' rejoue':' · au tour de '+LIVE_NAMES[s.cur]));
-    liveDraw();
+    liveDraw();drawMiniBoard();
     if(!monitor.hidden)renderObserver();
     if(s.free<=0)liveFinish();
   }catch(e){console.warn('Simulation interrompue',e);liveStop()}
@@ -347,7 +439,47 @@ function liveStop(){live.running=false;clearTimeout(live.timer);setLive('paused'
 function liveLoop(){
   if(!live.running)return;
   liveStep();
-  if(live.running)live.timer=setTimeout(liveLoop,SPEEDS[$('demoSpeed').value]||SPEEDS.normal);
+  if(live.running)live.timer=setTimeout(liveLoop,SPEEDS[currentSpeed()]||SPEEDS.normal);
+}
+function drawMiniBoard(){
+  const c=document.getElementById('wrMiniBoard');if(!c)return;
+  const s=live.s;
+  const css=getComputedStyle(document.documentElement),v=k=>css.getPropertyValue(k).trim();
+  const container=c.parentElement;if(!container)return;
+  const avail=container.clientWidth-16||240;
+  const cw=Math.max(180,Math.min(avail,360));
+  const ratio=s?(s.w+1)/(s.h+1):11/15;
+  const ch=cw/ratio;
+  const r=window.devicePixelRatio||1;
+  const pw=Math.round(cw*r),ph=Math.round(ch*r);
+  if(c.width!==pw||c.height!==ph){c.width=pw;c.height=ph}
+  c.style.width=cw+'px';c.style.height=ch+'px';
+  const x=c.getContext('2d');x.setTransform(r,0,0,r,0,0);x.clearRect(0,0,cw,ch);
+  const overlay=document.getElementById('wrBoardOverlay');
+  if(!s){if(overlay){overlay.textContent='En attente';overlay.hidden=false}return}
+  if(overlay)overlay.hidden=true;
+  const cs=cw/(s.w+1);
+  const P=(a,b)=>[(a+1)*cs,(b+1)*cs],team=t=>v('--c'+t)||['#ff2a6d','#05d9e8'][t];
+  x.fillStyle=v('--paper')||'#050410';x.fillRect(0,0,cw,ch);
+  x.strokeStyle=v('--line')||'#2a2762';x.lineWidth=1;x.beginPath();
+  for(let i=1;i<=s.w;i++){x.moveTo(i*cs,0);x.lineTo(i*cs,ch)}
+  for(let j=1;j<=s.h;j++){x.moveTo(0,j*cs);x.lineTo(cw,j*cs)}
+  x.stroke();
+  const R=cs*.3;
+  for(let b=0;b<s.h;b++)for(let a=0;a<s.w;a++){
+    const p=s.o[b][a],[px,py]=P(a,b);
+    if(!p)continue;
+    const dead=s.d[b][a],cc=team(p-1);
+    x.globalAlpha=dead?.4:1;x.fillStyle=cc;x.shadowColor=cc;x.shadowBlur=dead?0:cs*.7;
+    x.beginPath();x.arc(px,py,R,0,TAU);x.fill();x.shadowBlur=0;
+    if(!dead){x.fillStyle='rgba(255,255,255,.7)';x.beginPath();x.arc(px,py,R*.35,0,TAU);x.fill()}
+    x.globalAlpha=1;
+  }
+  if(live.flash&&live.flash.length){
+    x.strokeStyle=team(live.flashTeam);x.lineWidth=2;
+    live.flash.forEach(([a,b])=>{const [px,py]=P(a,b);x.beginPath();x.arc(px,py,R+cs*.28,0,TAU);x.stroke()});
+  }
+  if(live.last){const [px,py]=P(live.last[0],live.last[1]);x.strokeStyle=v('--tx')||'#e9e7ff';x.lineWidth=1.5;x.beginPath();x.arc(px,py,R+3,0,TAU);x.stroke()}
 }
 function liveDraw(){
   const s=live.s,c=$('demoBoard');if(!s||!c||demo.hidden)return;
@@ -424,10 +556,27 @@ $('observerLive').onclick=()=>{
   }
   logTrajectory('Guerre IA lancée par l’opérateur');
 };
+function bindAutoControls(){
+  const onStart=document.getElementById('wrAutoStart');
+  if(onStart)onStart.onchange=()=>{autoCfg.autoStart=onStart.checked;saveAutoCfg();updateAutoTag()};
+  const bg=document.getElementById('wrBgRun');
+  if(bg)bg.onchange=()=>{autoCfg.bgRun=bg.checked;saveAutoCfg();updateAutoTag()};
+  const lp=document.getElementById('wrLoop');
+  if(lp)lp.onchange=()=>{autoCfg.loop=lp.checked;saveAutoCfg()};
+  const sp=document.getElementById('wrSpeed');
+  if(sp)sp.onchange=()=>{autoCfg.speed=sp.value;saveAutoCfg()};
+  const sz=document.getElementById('wrSize');
+  if(sz)sz.onchange=()=>{autoCfg.size=sz.value;saveAutoCfg();if(live.s){liveStop();liveReset()}};
+  const lv=document.getElementById('wrLevel');
+  if(lv)lv.onchange=()=>{autoCfg.level=+lv.value;saveAutoCfg()};
+}
+bindAutoControls();
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!demo.hidden)closeLive()});
-document.addEventListener('visibilitychange',()=>{if(document.hidden&&live.running)liveStop()}); /* pas de calcul en arrière-plan */
-addEventListener('resize',()=>{if(!demo.hidden)liveDraw();drawChart()});
-setInterval(()=>{if(!monitor.hidden){renderObserver();renderTrain()}},2000);
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden&&live.running&&!autoCfg.bgRun)liveStop();
+});
+addEventListener('resize',()=>{if(!demo.hidden)liveDraw();drawChart();drawMiniBoard()});
+setInterval(()=>{if(!monitor.hidden){renderObserver();renderTrain();drawMiniBoard()}},2000);
 
 const chartHistory={red:[],cyan:[],force:[],moves:[]};
 const CHART_MAX=60;
