@@ -26,10 +26,23 @@ function cleanBook(b){
 }
 function mergeBook(a,b){
   const out={},A=cleanBook(a),B=cleanBook(b);
-  for(const k of Object.keys(A))out[k]=A[k];
-  for(const k of Object.keys(B)){
-    const x=out[k],y=B[k];
-    if(!x||y[0]>x[0]||(y[0]===x[0]&&y[3]>x[3]))out[k]=y;
+  /* Insertion déterministe pour préserver la commutativité stricte :
+     on itère sur l'UNION des clés (pas A puis B). Pour chaque clé, on choisit
+     l'entrée la plus « grande » selon un ordre total déterministe :
+     [n desc, t desc, JSON asc]. Sans le tie-break JSON, deux entrées avec
+     même n et même t mais gain/w différents donnaient mergeBook(a,b) != mergeBook(b,a). */
+  const keys=new Set([...Object.keys(A),...Object.keys(B)]);
+  for(const k of keys){
+    const x=A[k],y=B[k];
+    if(!x){out[k]=y;continue}
+    if(!y){out[k]=x;continue}
+    if(y[0]>x[0]||(y[0]===x[0]&&y[3]>x[3]))out[k]=y;
+    else if(y[0]===x[0]&&y[3]===x[3]){
+      /* Tie-break canonique : l'entrée dont la sérialisation JSON est la plus grande gagne,
+         indépendamment de l'ordre d'itération. */
+      const jx=JSON.stringify(x),jy=JSON.stringify(y);
+      out[k]=jy>jx?y:x;
+    }else out[k]=x;
   }
   return out;
 }
@@ -45,8 +58,14 @@ function masteredCount(ai){
 /* Extrait la partie synchronisable d'une mémoire IA locale (sans le journal de coups, local à l'appareil). */
 function pack(ai,train,now=Date.now()){
   ai=ai||{};
-  const p={v:VERSION,at:now,w:isW(ai.w)?ai.w.slice():null,c:isW(ai.c)?ai.c.slice():null,
-    pop:Array.isArray(ai.pop)&&ai.pop.length===8&&ai.pop.every(x=>x&&isW(x.w))?ai.pop.map(x=>({w:x.w.slice(),score:num(x.score),played:num(x.played),elo:num(x.elo,1200)})):null,
+  /* CLAMP des poids à [0,100] : le serveur (worker.mjs isW6) rejette en 422 tout poids hors borne.
+     Sans clamp, les mutations pouvaient faire dériver les poids au-dessus de 100 (x*1.3 sur 10 générations
+     = ~138x la valeur initiale), et le client renvoyait alors un cerveau invalide. */
+  const clampW=w=>Array.isArray(w)&&w.length===6?w.map(v=>Math.max(0,Math.min(100,+v||0))):null;
+  const clampPop=p=>Array.isArray(p)&&p.length===8&&p.every(x=>x&&Array.isArray(x.w)&&x.w.length===6)
+    ?p.map(x=>({w:clampW(x.w),score:num(x.score),played:num(x.played),elo:num(x.elo,1200)})):null;
+  const p={v:VERSION,at:now,w:isW(ai.w)?clampW(ai.w.slice()):null,c:isW(ai.c)?clampW(ai.c.slice()):null,
+    pop:clampPop(ai.pop),
     active:Math.max(0,Math.min(7,Math.floor(num(ai.active)))),
     st:{g:Math.max(0,num(ai.st&&ai.st.g)),w:Math.max(0,num(ai.st&&ai.st.w))},
     games:Math.max(0,num(ai.games)),simulations:Math.max(0,num(ai.simulations)),manualLessons:Math.max(0,num(ai.manualLessons)),
@@ -68,8 +87,19 @@ function mergeTrain(a,b){
   if(!a)return b;if(!b)return a;
   /* Une remise à zéro (epoch plus récent) l'emporte entièrement : sinon le maximum ressusciterait les anciennes statistiques. */
   if(a.epoch!==b.epoch)return a.epoch>b.epoch?a:b;
-  const lead=a.games>=b.games?a:b,out={epoch:a.epoch,games:Math.max(a.games,b.games),incomplete:Math.max(a.incomplete,b.incomplete),pauses:Math.max(a.pauses,b.pauses),
-    pauseUntil:Math.max(a.pauseUntil,b.pauseUntil),cursor:lead.cursor,lastPause:lead.lastPause||a.lastPause||b.lastPause,stats:{},streaks:{...lead.streaks}};
+  const ga=num(a.games),gb=num(b.games);
+  let lead,other;
+  if(ga>gb){lead=a;other=b}
+  else if(gb>ga){lead=b;other=a}
+  else{
+    /* Tie-break canonique pour la commutativité stricte quand games(a)==games(b) :
+      sans cela, `lead=a.games>=b.games?a:b` sélectionnait toujours le 1er argument,
+      ce qui rendait mergeTrain(a,b) != mergeTrain(b,a) pour cursor/lastPause/streaks. */
+    const ca=canon(a),cb=canon(b);
+    if(ca<=cb){lead=a;other=b}else{lead=b;other=a}
+  }
+  const out={epoch:a.epoch,games:Math.max(ga,gb),incomplete:Math.max(a.incomplete,b.incomplete),pauses:Math.max(a.pauses,b.pauses),
+    pauseUntil:Math.max(a.pauseUntil,b.pauseUntil),cursor:lead.cursor,lastPause:lead.lastPause||other.lastPause,stats:{},streaks:{...lead.streaks}};
   for(const id of new Set([...Object.keys(a.stats),...Object.keys(b.stats)])){
     const x=a.stats[id]||{w:0,l:0,d:0},y=b.stats[id]||{w:0,l:0,d:0};
     out.stats[id]={w:Math.max(x.w,y.w),l:Math.max(x.l,y.l),d:Math.max(x.d,y.d)};
@@ -79,7 +109,19 @@ function mergeTrain(a,b){
 /* a, b : cerveaux produits par pack(). Résultat : un nouveau cerveau, supérieur ou égal aux deux. */
 function merge(a,b){
   if(!a)return b||null;if(!b)return a;
-  const lead=experience(a)>=experience(b)?a:b,other=lead===a?b:a,out={v:VERSION,at:Math.max(num(a.at),num(b.at))};
+  const ea=experience(a),eb=experience(b);
+  let lead,other;
+  if(ea>eb){lead=a;other=b}
+  else if(eb>ea){lead=b;other=a}
+  else{
+    /* Tie-break canonique pour la commutativité stricte quand experience(a)==experience(b) :
+      deux appareils n'ayant joué aucune partie (games=0, simulations=0) tombent ici.
+      Sans tie-break, `lead = experience(a)>=experience(b)?a:b` sélectionnait toujours le 1er argument,
+      rendant merge(a,b) != merge(b,a) pour w/c/pop/active/opponent. */
+    const ca=canon(a),cb=canon(b);
+    if(ca<=cb){lead=a;other=b}else{lead=b;other=a}
+  }
+  const out={v:VERSION,at:Math.max(num(a.at),num(b.at))};
   for(const k of ['w','c','pop','active','opponent'])out[k]=lead[k]!=null?lead[k]:other[k];
   out.st={g:Math.max(num(a.st&&a.st.g),num(b.st&&b.st.g)),w:Math.max(num(a.st&&a.st.w),num(b.st&&b.st.w))};
   for(const k of ['games','simulations','manualLessons'])out[k]=Math.max(num(a[k]),num(b[k]));

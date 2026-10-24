@@ -238,11 +238,44 @@ export function validBrain(b){
     const bk=b[k];if(bk==null)continue;
     if(typeof bk!=='object'||Array.isArray(bk))return false;
     const keys=Object.keys(bk);if(keys.length>2500)return false;
-    for(const key of keys){const e=bk[key];if(key.length>200||!Array.isArray(e)||e.length!==4||e.some(v=>!Number.isFinite(v)))return false}
+    for(const key of keys){const e=bk[key];if(key.length>200||!Array.isArray(e)||e.length!==4||e.some(v=>!Number.isFinite(v)||v<0||v>100))return false}
   }
   for(const k of ['games','simulations','manualLessons']){if(b[k]!=null&&!(Number.isFinite(b[k])&&b[k]>=0&&b[k]<=1e9))return false}
   if(b.train!=null&&(typeof b.train!=='object'||Array.isArray(b.train)||JSON.stringify(b.train).length>20000))return false;
   return true;
+}
+/* Diagnostic explicite pour la réponse 422 : retourne le premier code d'erreur stable rencontré.
+   Aucune donnée privée ou valeur du cerveau n'est divulguée — juste un code court. */
+function brainFailureReason(b){
+  if(!b||typeof b!=='object'||Array.isArray(b))return 'brain_not_object';
+  if(b.v!==1)return 'version';
+  if(b.w!=null&&!isW6(b.w))return 'w_invalid';
+  if(b.c!=null&&!isW6(b.c))return 'c_invalid';
+  if(b.pop!=null){
+    if(!Array.isArray(b.pop))return 'pop_not_array';
+    if(b.pop.length!==8)return 'pop_length';
+    if(!b.pop.every(x=>x&&isW6(x.w)))return 'pop_w_invalid';
+  }
+  if(b.active!=null&&!(Number.isFinite(b.active)&&b.active>=0&&b.active<=7))return 'active_invalid';
+  for(const k of BRAIN_BOOKS){
+    const bk=b[k];if(bk==null)continue;
+    if(typeof bk!=='object'||Array.isArray(bk))return k+'_not_object';
+    const keys=Object.keys(bk);if(keys.length>2500)return k+'_too_large';
+    for(const key of keys){
+      const e=bk[key];
+      if(key.length>200)return k+'_key_too_long';
+      if(!Array.isArray(e)||e.length!==4)return k+'_entry_shape';
+      if(e.some(v=>!Number.isFinite(v)||v<0||v>100))return k+'_entry_value';
+    }
+  }
+  for(const k of ['games','simulations','manualLessons']){
+    if(b[k]!=null&&!(Number.isFinite(b[k])&&b[k]>=0&&b[k]<=1e9))return k+'_out_of_range';
+  }
+  if(b.train!=null){
+    if(typeof b.train!=='object'||Array.isArray(b.train))return 'train_not_object';
+    if(JSON.stringify(b.train).length>20000)return 'train_too_large';
+  }
+  return 'unknown';
 }
 async function handleBrain(req,env,h){
   const db=env.DB;
@@ -259,7 +292,7 @@ async function handleBrain(req,env,h){
   if(req.method==='PUT'){
     const p=await readJson(req,BRAIN_MAX);if(p.error)return json({error:'requête invalide'},p.error,h);
     const b=p.value||{};
-    if(!validPlayerId(b.playerId)||!validBrain(b.brain))return json({error:'cerveau IA invalide'},422,h);
+    if(!validPlayerId(b.playerId)||!validBrain(b.brain))return json({error:'cerveau IA invalide',reason:!validPlayerId(b.playerId)?'playerId_invalid':brainFailureReason(b.brain)},422,h);
     const base=Math.floor(Number(b.base));if(!Number.isFinite(base)||base<0)return json({error:'version de base invalide'},422,h);
     {const denied=await gate(req,env,h,b.playerId);if(denied)return denied}
     const text=JSON.stringify(b.brain);if(text.length>BRAIN_MAX)return json({error:'trop gros'},413,h);

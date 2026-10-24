@@ -60,6 +60,10 @@ class Tournament{
     const st=this.st,A=st.stats[aId],B=st.stats[bId];
     if(!A||!B)return{pause:false};
     st.games++;if(!complete)st.incomplete++;
+    /* Audit P0-2 : une partie incomplète ne doit JAMAIS être comptée comme victoire/défaite,
+       ni incrémenter les séries. Sinon un timeout ou une erreur de coup pouvait déclencher
+       une pause de série (streakLimit atteint sur des parties fantômes). */
+    if(!complete)return{pause:false,incomplete:true};
     if(winner===0){A.w++;B.l++;st.streaks[aId]++;st.streaks[bId]=0}
     else if(winner===1){B.w++;A.l++;st.streaks[bId]++;st.streaks[aId]=0}
     else{A.d++;B.d++;st.streaks[aId]=0;st.streaks[bId]=0}

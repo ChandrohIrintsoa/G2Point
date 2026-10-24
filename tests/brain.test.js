@@ -88,3 +88,69 @@ test('progression : anciens clients sans horodatage -> maximum (comportement pru
   const m=B.mergeProgress({streak:1,best:2,elo:{x:1300}},{streak:4,best:3,elo:{x:1250}});
   assert.equal(m.elo.x,1300);assert.equal(m.streak,4);assert.equal(m.best,4);
 });
+
+/* ---- Audit section 5 : tests mathématiques STRICTS de la fusion ----
+   Les tests précédents utilisaient `fingerprint()` (comparaison coarse par résumés)
+   qui masquait les violations de commutativité quand deux cerveaux ont la même
+   experience mais des contenus différents. Ici on compare les sérialisations
+   canoniques complètes via B.canon(). */
+
+test('audit 5 : merge STRICTEMENT commutative quand experiences différent',()=>{
+  const a=B.pack(ai({games:5,simulations:50,w:W(1),book:{x:[3,1,1,9]}}));
+  const b=B.pack(ai({games:2,simulations:90,w:W(9),book:{x:[3,4,2,20],y:[1,1,1,1]}}));
+  assert.equal(B.canon(B.merge(a,b)),B.canon(B.merge(b,a)),'merge(a,b) === merge(b,a) en canon');
+});
+
+test('audit 5 : merge STRICTEMENT commutative à experience ÉGALE (cas précédemment cassé)',()=>{
+  /* Deux cerveaux sans parties jouées mais avec poids et livres différents.
+     Avant le fix : lead = experience(a)>=experience(b)?a:b => lead=a tjrs,
+     donc merge(a,b).w venait de a, merge(b,a).w venait de b => != */
+  const a=B.pack(ai({games:0,simulations:0,w:W(1),book:{k1:[3,1,1,9]}}));
+  const b=B.pack(ai({games:0,simulations:0,w:W(9),book:{k1:[5,2,3,9],k2:[1,1,1,1]}}));
+  assert.equal(B.canon(B.merge(a,b)),B.canon(B.merge(b,a)),'merge(a,b) === merge(b,a) à experience égale');
+});
+
+test('audit 5 : merge STRICTEMENT idempotente',()=>{
+  const a=B.pack(ai({games:5,simulations:50,w:W(3),book:{x:[3,1,1,9]}}));
+  assert.equal(B.canon(B.merge(a,a)),B.canon(a),'merge(a,a) === a en canon');
+});
+
+test('audit 5 : merge STRICTEMENT associative',()=>{
+  const a=B.pack(ai({games:5,w:W(1),book:{k1:[3,1,1,9]}}));
+  const b=B.pack(ai({games:2,simulations:90,w:W(9),book:{k1:[5,2,3,9],k2:[1,1,1,1]}}));
+  const c=B.pack(ai({games:10,simulations:200,w:W(5),book:{k1:[7,3,5,9],k3:[2,2,2,2]}}));
+  const l=B.merge(B.merge(a,b),c),r=B.merge(a,B.merge(b,c));
+  assert.equal(B.canon(l),B.canon(r),'merge(merge(a,b),c) === merge(a,merge(b,c))');
+});
+
+test('audit 5 : mergeBook STRICTEMENT commutative à n et t égaux mais gain/w différents',()=>{
+  /* Cas précis qui échouait avant le fix : deux entrées avec même n et même t
+     mais gain/w différents. Sans tie-break JSON, l'ordre d'itération décidait. */
+  const A={k:[5,3,3,100]},B_={k:[5,4,5,100]}; /* même n=5, même t=100, gain/w différents */
+  assert.equal(JSON.stringify(B.mergeBook(A,B_)),JSON.stringify(B.mergeBook(B_,A)),'mergeBook(A,B) === mergeBook(B,A)');
+  /* Vérifie aussi qu'on prend bien l'entrée la plus "grande" en canon (pas juste au hasard) */
+  const merged=B.mergeBook(A,B_);
+  assert.deepEqual(merged.k,[5,4,5,100],'l\'entrée avec gain+w supérieur est retenue');
+});
+
+test('audit 5 : mergeTrain STRICTEMENT commutative à games égaux (cas précédemment cassé)',()=>{
+  /* Avant le fix : lead = a.games>=b.games?a:b => lead=a tjrs à games égal,
+     cursor/lastPause/streaks venaient de a. */
+  const ta=B.cleanTrain({epoch:0,games:30,cursor:4,lastPause:{id:'X',at:1},stats:{IA:{w:5,l:3,d:0}},streaks:{IA:7}});
+  const tb=B.cleanTrain({epoch:0,games:30,cursor:9,lastPause:{id:'Y',at:2},stats:{IA:{w:12,l:1,d:2}},streaks:{IA:12}});
+  assert.equal(B.canon(B.mergeTrain(ta,tb)),B.canon(B.mergeTrain(tb,ta)),'mergeTrain(a,b) === mergeTrain(b,a) à games égal');
+});
+
+test('audit 5 : sync croisée 3 appareils converge vers le même cerveau (commutativité + associativité)',()=>{
+  /* Scénario réel : 3 appareils se synchronisent en parallèle.
+     Les 3 paires (a-b, b-c, a-c) puis synchro avec le cloud doivent converger. */
+  const a=B.pack(ai({games:5,simulations:50,w:W(1),book:{p1:[5,3,3,1]}}));
+  const b=B.pack(ai({games:2,simulations:90,w:W(9),book:{p2:[4,2,2,1]}}));
+  const c=B.pack(ai({games:10,simulations:200,w:W(5),book:{p3:[8,5,5,1]}}));
+  /* 3 ordres possibles de sync */
+  const o1=B.merge(B.merge(a,b),c);
+  const o2=B.merge(B.merge(b,c),a);
+  const o3=B.merge(B.merge(c,a),b);
+  assert.equal(B.canon(o1),B.canon(o2),'ordre (a,b,c) == (b,c,a)');
+  assert.equal(B.canon(o2),B.canon(o3),'ordre (b,c,a) == (c,a,b)');
+});

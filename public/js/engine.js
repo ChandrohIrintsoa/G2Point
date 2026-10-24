@@ -251,9 +251,9 @@ function searchBeam(s,root,depth,beam,weights,book,level,profile,ctx){
   for(const [x,y] of list){
     if(ctx.aborted)break;
     const next=clone(s);if(!apply(next,[x,y]))continue;
-    const own=next.sc[actor]-s.sc[actor],against=next.sc[1-actor]-s.sc[1-actor];
+    const own=next.sc[actor]-s.sc[actor],rival0=rival(s,actor),against=next.sc[rival0]-s.sc[rival0];
     let h=(actor===root?own-against:against-own)*(weights[0]+weights[1])*.5;
-    const same=links(s,x,y,actor),enemy=links(s,x,y,1-actor),sign=actor===root?1:-1;
+    const same=links(s,x,y,actor),enemy=links(s,x,y,rival0),sign=actor===root?1:-1;
     h+=sign*(same*weights[3]+enemy*weights[4]);
     if(actor!==root)h-=enemy*style.capture*weights[2]*.3;
     const key=(PBook=>PBook&&PBook[strategyKey(s,x,y,actor)])(level.sbook)||book&&book[strategyKey(s,x,y,actor)];
@@ -287,8 +287,8 @@ function mctsRefine(s,root,candidates,weights,profile,rnd=Math.random,deadline=n
    const ranked=[];
    for(const [x,y] of list){
     const child=clone(state);if(!apply(child,[x,y]))continue;
-    const gain=child.sc[actor]-state.sc[actor],loss=child.sc[1-actor]-state.sc[1-actor];
-    const local=links(state,x,y,actor)-links(state,x,y,1-actor)*.25;
+    const gain=child.sc[actor]-state.sc[actor],rivalS=rival(state,actor),loss=child.sc[rivalS]-state.sc[rivalS];
+    const local=links(state,x,y,actor)-links(state,x,y,rivalS)*.25;
     ranked.push({move:[x,y],score:(gain-loss)*8+local});
    }
    if(!ranked.length)break;

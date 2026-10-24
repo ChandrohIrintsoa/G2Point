@@ -65,3 +65,25 @@ test('une partie interrompue est comptée à part (audit 3.3)',()=>{
   const t=new T.Tournament();t.record('L1','L0',0,false);
   assert.equal(t.st.incomplete,1);
 });
+
+/* ---- Régression audit P0-2 : parties incomplètes exclues des stats ---- */
+test('régression P0-2 : une partie incomplète ne compte pas comme victoire/défaite et ne déclenche pas de pause',()=>{
+  const T=require('../public/js/trainer.js');
+  /* StreakLimit=3 : après 3 victoires COMPLÈTES consécutives, pause se déclenche.
+     On insère 2 incomplètes entre les victoires complètes :
+     - SANS le fix : les incomplètes incrémentaient le streak → pause déclenchée dès la 3e itération (incomplète).
+     - AVEC le fix : les incomplètes sont ignorées du streak → pause déclenchée à la 5e itération (3e victoire complète). */
+  const t=new T.Tournament({streakLimit:3,pauseMin:1,levels:[0,1,2]},null);
+  const ids=t.players.map(p=>p.id);
+  let r;
+  r=t.record(ids[0],ids[1],0,true);  assert.equal(r.pause,false,'1re complète, streak=1, pas de pause');
+  r=t.record(ids[0],ids[1],0,true);  assert.equal(r.pause,false,'2e complète, streak=2, pas de pause');
+  r=t.record(ids[0],ids[1],0,false); assert.equal(r.pause,false,'3e itération INCOMPLÈTE : ne doit PAS déclencher de pause même si streak atteint');
+  r=t.record(ids[0],ids[1],0,false); assert.equal(r.pause,false,'4e itération INCOMPLÈTE : ne doit PAS déclencher de pause');
+  r=t.record(ids[0],ids[1],0,true); assert.equal(r.pause,true,'5e itération = 3e victoire COMPLÈTE : streak atteint 3, pause se déclenche');
+  assert.equal(r.id,ids[0],'pause attribuée au bon joueur');
+  assert.equal(r.streak,3,'streak signalé = 3 (victoires complètes seulement)');
+  assert.equal(t.snapshot().stats[ids[0]].w,3,'seules 3 victoires complètes sont comptabilisées');
+  assert.equal(t.snapshot().incomplete,2,'2 incomplètes enregistrées séparément');
+  assert.equal(t.snapshot().pauses,1,'exactement 1 pause déclenchée');
+});

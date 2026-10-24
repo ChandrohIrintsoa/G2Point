@@ -252,3 +252,29 @@ test('propositions : sans jeton 401 ; contenu invalide 422 (poids, trop peu de s
     assert.equal((await W.default.fetch(req('/api/ai/proposal',{method:'POST',tok,body:bad}),env)).status,422);
   }
 });
+
+/* ---- Audit section 5 : 422 explicite avec code de raison ---- */
+test('audit 422 : un cerveau avec poids hors borne renvoie un code raison stable',async()=>{
+  const W=await import('../cloudflare/worker.mjs');W._resetForTests();
+  const {pair,jwks}=await makeKeys(),env={DB:brainDb(),ALLOWED_ORIGINS:ORIGIN,FIREBASE_PROJECT_ID:'proj',FIREBASE_JWKS:jwks};
+  const tok=await token(pair),id='player_123456';
+  // Poids hors borne : 150 > 100. Le client corrigé (clamp) n'enverra plus ça, mais le serveur doit refuser.
+  const r=await W.default.fetch(req('/api/ai/brain',{method:'PUT',tok,body:{playerId:id,base:0,brain:goodBrain({w:[1,2,3,4,5,150]})}}),env);
+  assert.equal(r.status,422);
+  const b=await r.json();
+  assert.equal(b.reason,'w_invalid','le code raison doit être stable et explicite');
+  assert.ok(!JSON.stringify(b).includes('150'),'la valeur rejetée ne doit pas être divulguée');
+});
+test('audit 422 : population invalide renvoie pop_length ou pop_w_invalid',async()=>{
+  const W=await import('../cloudflare/worker.mjs');W._resetForTests();
+  const {pair,jwks}=await makeKeys(),env={DB:brainDb(),ALLOWED_ORIGINS:ORIGIN,FIREBASE_PROJECT_ID:'proj',FIREBASE_JWKS:jwks};
+  const tok=await token(pair),id='player_123456';
+  // pop de longueur 7 au lieu de 8
+  const r1=await W.default.fetch(req('/api/ai/brain',{method:'PUT',tok,body:{playerId:id,base:0,brain:{...goodBrain(),pop:Array.from({length:7},()=>({w:[1,2,3,4,5,6]}))}}}),env);
+  assert.equal(r1.status,422);
+  const b1=await r1.json();assert.equal(b1.reason,'pop_length');
+  // pop avec un chromosome dont un poids est négatif
+  const r2=await W.default.fetch(req('/api/ai/brain',{method:'PUT',tok,body:{playerId:id,base:0,brain:{...goodBrain(),pop:Array.from({length:8},(_,i)=>({w:i===0?[1,2,3,4,5,-5]:[1,2,3,4,5,6]}))}}}),env);
+  assert.equal(r2.status,422);
+  const b2=await r2.json();assert.equal(b2.reason,'pop_w_invalid');
+});

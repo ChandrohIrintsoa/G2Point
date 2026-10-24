@@ -132,3 +132,42 @@ test('le hash distingue les règles de jeu de même plateau',()=>{
   const a=E.create(11,15,2,false),b=E.create(11,15,4,true);
   assert.notEqual(E.stateHash(a),E.stateHash(b));
 });
+
+/* ---- Régression multijoueur (audit P0-1) : searchBeam/mctsRefine à 3-4 joueurs ----
+   Avant le fix : `next.sc[1-actor]` produisait undefined → NaN dans l'évaluation
+   des coups candidats. Le garde-fou `if(!Number.isFinite(value))value=evaluate()`
+   empêchait le crash mais la recherche retombait sur l'heuristique superficielle,
+   soit une IA Champion/Difficile à 3-4 joueurs équivalente à Facile.
+   Maintenant : `rival(s,actor)` est utilisé à la place de `1-actor`. */
+test('régression multijoueur : searchBeam+mctsRefine à 3 joueurs ne produisent pas de NaN (lvl=2 Difficile)',()=>{
+  for(const seed of [1234,5678,9012]){
+    const s=E.create(9,9,3,false),r=E.rng(seed);
+    for(let i=0;i<8;i++){const m=E.aiMove(s,r,{lvl:0});if(!m||!E.apply(s,m))break} /* position initiale avec 3 scores divergents */
+    s.sc=[5,2,0]; /* force un rival clair : joueur 0 mène */
+    const m=E.aiMove(s,r,{lvl:2,predictive:false});
+    assert.ok(m,'aiMove a renvoyé null à 3 joueurs Difficile');
+    assert.equal(E.apply(s,m),true,'le coup choisi doit être légal');
+    assert.ok(Number.isFinite(s.sc[0])&&Number.isFinite(s.sc[1])&&Number.isFinite(s.sc[2]),'les scores ne doivent pas devenir NaN');
+  }
+});
+test('régression multijoueur : mctsRefine à 3 joueurs renvoie un coup valide (pas de NaN dans les rollouts)',()=>{
+  for(const [n,tm] of [[3,false],[4,false],[4,true]]){
+    const s=E.create(9,9,n,tm),r=E.rng(7777);
+    for(let i=0;i<6;i++){const m=E.aiMove(s,r,{lvl:0});if(!m||!E.apply(s,m))break}
+    s.sc=s.sc.map((v,i)=>v+(i===0?3:1)); /* diverger les scores */
+    const pool=[];for(let y=0;y<s.h;y++)for(let x=0;x<s.w;x++)if(E.legal(s,x,y))pool.push([x,y]);
+    const res=E.mctsRefine(s,s.cur,pool.slice(0,8),E.DEFAULT_W,null,r,performance.now()+120,80);
+    assert.ok(res&&Array.isArray(res.move)&&res.move.length===2,'mctsRefine doit renvoyer un move [x,y]');
+    assert.ok(E.legal(s,res.move[0],res.move[1]),'le coup choisi doit être légal');
+    assert.ok(res.visits>0,'mctsRefine doit effectuer au moins une visite');
+  }
+});
+test('régression multijoueur : aiMove Champion (lvl=3) à 4 joueurs/équipes joue un coup légal',()=>{
+  for(const [n,tm] of [[4,false],[4,true]]){
+    const s=E.create(9,9,n,tm),r=E.rng(4242);
+    for(let i=0;i<5;i++){const m=E.aiMove(s,r,{lvl:0});if(!m||!E.apply(s,m))break}
+    const m=E.aiMove(s,r,{lvl:3,predictive:false});
+    assert.ok(m,'aiMove Champion a renvoyé null à n='+n);
+    assert.equal(E.apply(s,m),true,'le coup doit être légal');
+  }
+});
