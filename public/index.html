@@ -18,13 +18,54 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800&display=swap" media="print" onload="this.media='all'">
 <link rel="stylesheet" href="css/style.css">
 <link rel="stylesheet" href="css/enhancements.css?v=5">
+<link rel="stylesheet" href="css/design-system.css?v=1">
+<link rel="stylesheet" href="css/hero.css?v=1">
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 </head>
 <body>
 <main>
 <section id="menu">
-  <h1 data-text="G2Point">G2Point</h1>
-  <p>Posez un point à tour de rôle sur les intersections. Encerclez les points adverses avec une chaîne de vos points pour les capturer. <strong>Une zone où une capture a eu lieu est confinée</strong> : plus personne ne peut y poser de point.</p>
-  <button id="bTuto" type="button" class="lnk">Comment jouer ?</button>
+  <!-- ====== HERO 3D ====== -->
+  <div class="g2-hero">
+    <canvas id="heroCanvas" class="g2-hero__canvas" aria-hidden="true"></canvas>
+    <div class="g2-hero__content">
+      <span class="g2-eyebrow">Nouveau · Refonte visuelle 2026</span>
+      <h1 class="g2-hero__title" data-text="G2Point"><span class="g2-hero__title-text">G2Point</span></h1>
+      <p class="g2-hero__tagline">Le jeu de points stratégique où chaque intersection compte. Encerclez vos adversaires, capturez leurs points, et affrontez une IA qui apprend de chacun de vos coups.</p>
+      <div class="g2-hero__cta">
+        <a class="g2-btn g2-btn--primary" href="#quick-play">Jouer maintenant</a>
+        <a class="g2-btn g2-btn--ghost" href="#features">Découvrir le jeu</a>
+      </div>
+      <div class="g2-hero__stats" role="list">
+        <div class="g2-hero__stat" role="listitem">
+          <span class="g2-hero__stat-value">4</span>
+          <span class="g2-hero__stat-label">Joueurs max</span>
+        </div>
+        <div class="g2-hero__stat" role="listitem">
+          <span class="g2-hero__stat-value">3</span>
+          <span class="g2-hero__stat-label">Tailles de terrain</span>
+        </div>
+        <div class="g2-hero__stat" role="listitem">
+          <span class="g2-hero__stat-value">∞</span>
+          <span class="g2-hero__stat-label">IA évolutive</span>
+        </div>
+      </div>
+    </div>
+    <div class="g2-hero__scroll" aria-hidden="true">
+      Scroll
+      <span class="g2-hero__scroll-icon"></span>
+    </div>
+  </div>
+
+  <!-- ====== QUICK PLAY (menu existant) ====== -->
+  <div id="quick-play" class="g2-quick-play g2-section">
+    <div class="g2-container">
+      <div class="g2-section-header">
+        <span class="g2-eyebrow">Démarrage rapide</span>
+        <h2 class="g2-title">Lance ta partie</h2>
+        <p class="g2-subtitle">Posez un point à tour de rôle sur les intersections. Encerclez les points adverses avec une chaîne de vos points pour les capturer. <strong>Une zone où une capture a eu lieu est confinée</strong> : plus personne ne peut y poser de point.</p>
+      </div>
+      <button id="bTuto" type="button" class="lnk">Comment jouer ?</button>
   <div class="opts">
     <label>Terrain
       <select id="size"><option value="11x15" selected>Petit (11 × 15)</option><option value="17x23">Moyen (17 × 23)</option><option value="23x31">Grand (23 × 31)</option></select>
@@ -91,6 +132,199 @@
     <summary>Historique et statistiques</summary>
     <div id="hist" class="hist"><p>Aucune partie terminée pour le moment.</p></div>
   </details>
+    </div>
+  </div>
+
+  <!-- ====== FEATURES ====== -->
+  <section id="features" class="g2-features g2-section">
+    <div class="g2-container">
+      <div class="g2-section-header">
+        <span class="g2-eyebrow">Fonctionnalités</span>
+        <h2 class="g2-title">Pourquoi G2Point</h2>
+        <p class="g2-subtitle">Un jeu de réflexion qui combine stratégie pure, intelligence artificielle évolutive et expérience multijoueur fluide.</p>
+      </div>
+      <div class="g2-features__grid">
+        <article class="g2-feature-card" style="--card-color: #05d9e8">
+          <div class="g2-feature-card__icon">♟</div>
+          <h3 class="g2-feature-card__title">Stratégie pure</h3>
+          <p class="g2-feature-card__desc">Capturer un point c'est l'encercler. Une fois une zone capturée, elle devient confinée — plus personne ne peut y jouer. Chaque coup façonne l'espace disponible.</p>
+          <span class="g2-feature-card__tag">Mécanique unique</span>
+        </article>
+        <article class="g2-feature-card" style="--card-color: #ff2a6d">
+          <div class="g2-feature-card__icon">✦</div>
+          <h3 class="g2-feature-card__title">IA qui apprend</h3>
+          <p class="g2-feature-card__desc">L'IA n'est pas scriptée : elle observe vos coups, vos menaces, vos captures. Entraînez-la manuellement via le Laboratoire, ou laissez-la progresser seule en arrière-plan.</p>
+          <span class="g2-feature-card__tag">Apprentissage continu</span>
+        </article>
+        <article class="g2-feature-card" style="--card-color: #7c5cff">
+          <div class="g2-feature-card__icon">⬡</div>
+          <h3 class="g2-feature-card__title">Multijoueur en ligne</h3>
+          <p class="g2-feature-card__desc">Créez une partie, partagez le code à 5 caractères, vos amis vous rejoignent. Discussion éphémère, réactions rapides, synchronisation temps réel via Firebase.</p>
+          <span class="g2-feature-card__tag">Firebase temps réel</span>
+        </article>
+        <article class="g2-feature-card" style="--card-color: #39ff14">
+          <div class="g2-feature-card__icon">⚡</div>
+          <h3 class="g2-feature-card__title">PWA installable</h3>
+          <p class="g2-feature-card__desc">Installez G2Point sur votre appareil. Jouez hors-ligne en local, synchronisez votre IA entre appareils via le cloud, et reprenez votre partie où vous l'avez laissée.</p>
+          <span class="g2-feature-card__tag">Offline-first</span>
+        </article>
+        <article class="g2-feature-card" style="--card-color: #ffb800">
+          <div class="g2-feature-card__icon">◇</div>
+          <h3 class="g2-feature-card__title">Défi quotidien</h3>
+          <p class="g2-feature-card__desc">Chaque jour, un puzzle de capture en un coup généré automatiquement. Affrontez la communauté, débloquez de nouveaux thèmes de couleurs pour vos points.</p>
+          <span class="g2-feature-card__tag">Nouveau chaque jour</span>
+        </article>
+        <article class="g2-feature-card" style="--card-color: #d946ef">
+          <div class="g2-feature-card__icon">◉</div>
+          <h3 class="g2-feature-card__title">Laboratoire IA</h3>
+          <p class="g2-feature-card__desc">Composez une position, choisissez le plan à travailler (attaque, défense, approche, chaîne), montrez le bon coup à l'IA. Synchronisez ensuite votre cerveau entre vos appareils.</p>
+          <span class="g2-feature-card__tag">Entraînement manuel</span>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ====== SOCIAL PROOF ====== -->
+  <section class="g2-social g2-section">
+    <div class="g2-container">
+      <div class="g2-section-header">
+        <span class="g2-eyebrow">La communauté</span>
+        <h2 class="g2-title">Ils jouent à G2Point</h2>
+        <p class="g2-subtitle">Un jeu pensé pour la profondeur stratégique et l'évolution long terme de l'adversaire IA.</p>
+      </div>
+      <div class="g2-stats">
+        <div class="g2-stat">
+          <div class="g2-stat__value">2 à 4</div>
+          <div class="g2-stat__label">Joueurs par partie</div>
+        </div>
+        <div class="g2-stat">
+          <div class="g2-stat__value">11×15</div>
+          <div class="g2-stat__label">Terrain minimal</div>
+        </div>
+        <div class="g2-stat">
+          <div class="g2-stat__value">3</div>
+          <div class="g2-stat__label">Niveaux d'IA</div>
+        </div>
+        <div class="g2-stat">
+          <div class="g2-stat__value">100%</div>
+          <div class="g2-stat__label">Open source</div>
+        </div>
+      </div>
+      <div class="g2-testimonials">
+        <article class="g2-testimonial">
+          <p class="g2-testimonial__quote">La mécanique de zone confinée change tout. On ne joue plus seulement contre l'adversaire, on sculpte l'espace disponible. Chaque partie est différente.</p>
+          <div class="g2-testimonial__author">
+            <div class="g2-testimonial__avatar">ML</div>
+            <div>
+              <p class="g2-testimonial__name">Marie L.</p>
+              <p class="g2-testimonial__role">Joueuse de jeux de stratégie</p>
+            </div>
+          </div>
+        </article>
+        <article class="g2-testimonial">
+          <p class="g2-testimonial__quote">Le Laboratoire IA est génial. On peut littéralement entraîner l'adversaire à jouer comme on veut, puis le voir évoluer partie après partie. Jamais vu ça ailleurs.</p>
+          <div class="g2-testimonial__author">
+            <div class="g2-testimonial__avatar">TK</div>
+            <div>
+              <p class="g2-testimonial__name">Tom K.</p>
+              <p class="g2-testimonial__role">Développeur & joueur</p>
+            </div>
+          </div>
+        </article>
+        <article class="g2-testimonial">
+          <p class="g2-testimonial__quote">On joue à 4 en local avec mes potes, c'est tendu, rapide, et le fait que les zones capturées disparaissent crée des moments de dingue. Le design néon est superbe.</p>
+          <div class="g2-testimonial__author">
+            <div class="g2-testimonial__avatar">SR</div>
+            <div>
+              <p class="g2-testimonial__name">Sarah R.</p>
+              <p class="g2-testimonial__role">Gameuse casual</p>
+            </div>
+          </div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ====== DASHBOARD PREVIEW ====== -->
+  <section class="g2-dashboard g2-section">
+    <div class="g2-container">
+      <div class="g2-dashboard__layout">
+        <div class="g2-dashboard__mockup" aria-hidden="true">
+          <div class="g2-dashboard__mockup-inner">
+            <div class="g2-mock-bar">
+              <div class="g2-mock-bar__dots"><span></span><span></span><span></span></div>
+              <span class="g2-mock-bar__title">Partie en cours</span>
+              <span class="g2-mock-bar__badge">Tour 1</span>
+            </div>
+            <div class="g2-mock-board">
+              <div class="g2-mock-board__grid"></div>
+              <div class="g2-mock-point g2-mock-point--p1" style="left:30%;top:40%"></div>
+              <div class="g2-mock-point g2-mock-point--p2" style="left:55%;top:55%"></div>
+              <div class="g2-mock-point g2-mock-point--p1" style="left:45%;top:35%"></div>
+              <div class="g2-mock-point g2-mock-point--p2" style="left:65%;top:30%"></div>
+              <div class="g2-mock-point g2-mock-point--p1" style="left:40%;top:50%"></div>
+              <div class="g2-mock-point g2-mock-point--p3" style="left:25%;top:65%"></div>
+              <div class="g2-mock-point g2-mock-point--p4" style="left:70%;top:65%"></div>
+            </div>
+            <div class="g2-mock-scores">
+              <div class="g2-mock-chip g2-mock-chip--active">
+                <span class="g2-mock-chip__label">J1</span>
+                <span class="g2-mock-chip__value">3</span>
+              </div>
+              <div class="g2-mock-chip">
+                <span class="g2-mock-chip__label">J2</span>
+                <span class="g2-mock-chip__value">2</span>
+              </div>
+              <div class="g2-mock-chip">
+                <span class="g2-mock-chip__label">J3</span>
+                <span class="g2-mock-chip__value">1</span>
+              </div>
+              <div class="g2-mock-chip">
+                <span class="g2-mock-chip__label">J4</span>
+                <span class="g2-mock-chip__value">1</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="g2-dashboard__text">
+          <span class="g2-eyebrow">Aperçu du terrain</span>
+          <h3>Une interface pensée pour la lecture</h3>
+          <p>Le terrain s'adapte à votre écran, du mobile au desktop. Sur grands écrans, un layout deux colonnes garde scores, salon et conseils IA visibles en permanence. Mode plein écran disponible pour une immersion totale.</p>
+          <ul class="g2-dashboard__list">
+            <li>Zoom et déplacement sur grands terrains</li>
+            <li>Indicateur de tour animé et lisible</li>
+            <li>Conseils IA en temps réel pendant la partie</li>
+            <li>Réactions rapides et chat éphémère en ligne</li>
+            <li>Sauvegarde automatique entre sessions</li>
+          </ul>
+          <a class="g2-btn g2-btn--primary" href="#quick-play">Tester maintenant</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ====== CTA FINAL ====== -->
+  <section class="g2-cta g2-section">
+    <div class="g2-container">
+      <div class="g2-cta-box">
+        <h2>Prêt à capturer vos premiers points ?</h2>
+        <p>Configurez votre partie en quelques secondes. Jouez en local, en ligne, ou contre l'IA. G2Point est gratuit, open source et installable comme application.</p>
+        <div class="g2-hero__cta">
+          <a class="g2-btn g2-btn--primary" href="#quick-play">Commencer une partie</a>
+          <a class="g2-btn g2-btn--ghost" href="https://github.com/ChandrohIrintsoa/G2Point" target="_blank" rel="noopener">Voir le code</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ====== FOOTER ====== -->
+  <footer class="g2-footer">
+    <div class="g2-container">
+      <h3 class="g2-footer__brand">G2Point</h3>
+      <p class="g2-footer__tagline">Le jeu de points stratégique · multijoueur · IA évolutive</p>
+      <p class="g2-footer__made">Made by ChaIr</p>
+    </div>
+  </footer>
 </section>
 
 <section id="game" hidden>
@@ -228,5 +462,6 @@
 <script defer src="js/cloud-config.js"></script>
 <script defer src="js/app.js?v=32"></script>
 <script defer src="js/enhancements.js?v=18"></script>
+<script defer src="js/hero-scene.js?v=1"></script>
 </body>
 </html>
