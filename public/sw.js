@@ -1,6 +1,6 @@
 /* Cache hors-ligne : le réseau d'abord (une mise en ligne est visible dès le rechargement), le cache en secours sans connexion.
    L'ancienne stratégie « cache d'abord » resservait l'ancienne page après un déploiement : anciens bugs affichés jusqu'à un 2e rechargement. */
-const V='g2p-v32',A=['./','css/style.css','css/enhancements.css?v=5','js/engine.js?v=22','js/puzzles.js','js/trainer.js?v=2','js/brain.js?v=3','js/verify.js?v=2','js/train-worker.js?v=4','js/cloud-config.js','js/app.js?v=32','js/enhancements.js?v=18','js/firebase-config.js','manifest.webmanifest','icon.svg'];
+const V='g2p-v36',A=['./','css/style.css','css/design-system.css?v=2','css/enhancements.css?v=6','css/hero.css?v=2','js/engine.js?v=22','js/puzzles.js','js/trainer.js?v=2','js/brain.js?v=3','js/verify.js?v=2','js/train-worker.js?v=4','js/cloud-config.js','js/app.js?v=33','js/enhancements.js?v=19','js/hero-scene.js?v=2','js/firebase-config.js','manifest.webmanifest','icon.svg'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(V).then(c=>c.addAll(A)).then(()=>self.skipWaiting()))});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x!==V).map(x=>caches.delete(x)))).then(()=>self.clients.claim()))});
 self.addEventListener('fetch',e=>{
