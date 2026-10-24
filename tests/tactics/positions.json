@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "description": "Corpus tactique G2Point — positions annotées avec le meilleur coup attendu. Audit section 7A : mesurer les erreurs stratégiques de l'IA sur des positions de référence plutôt que sur ses propres auto-parties.",
+  "description": "Corpus tactique G2Point — positions annotées avec le meilleur coup attendu. Audit section 7A : mesurer les erreurs stratégiques de l'IA sur des positions de référence plutôt que sur ses propres auto-parties. Le test associé (tests/tactics.test.js) utilise 1 seule graine par position (pas de retry sur réussite) pour mesurer la fiabilité réelle en un seul essoi.",
   "positions": [
     {
       "id": "capture_immediate_1",
@@ -23,6 +23,16 @@
       "rationale": "Si P0 ne joue pas (5,6), P1 le fera au prochain tour et capturera (5,5) — perte nette d'un point et d'un territoire. P0 n'a pas d'autre capture immédiate disponible pour compenser. La défense est obligatoire."
     },
     {
+      "id": "double_capture_simultanee",
+      "category": "capture",
+      "description": "P0 peut capturer 2 points P1 simultanément en jouant (5,6) qui ferme DEUX losanges — autour de (5,5) ET autour de (5,7). Le gain double prime sur toute autre option.",
+      "w": 11, "h": 15, "n": 2, "tm": false,
+      "moves": [[5,4],[5,5],[4,5],[5,7],[6,5],[0,0],[5,8],[0,2],[4,7],[0,4],[6,7],[0,6]],
+      "expectedBest": [5,6],
+      "acceptAlternatives": [],
+      "rationale": "(5,6) ferme simultanément le losange (5,4)-(4,5)-(6,5)-(5,6) autour de (5,5) ET le losange (5,8)-(4,7)-(6,7)-(5,6) autour de (5,7). Gain immédiat de 2 points en 1 coup. Aucun autre coup n'offre un gain supérieur à 1."
+    },
+    {
       "id": "ouverture_centree",
       "category": "opening",
       "description": "Plateau vide 11x15, 2 joueurs. P0 doit ouvrir au centre pour maximiser les options d'expansion.",
@@ -31,6 +41,16 @@
       "expectedBest": [5,7],
       "acceptAlternatives": [[4,7],[6,7],[5,6],[5,8],[4,6],[6,8],[4,8],[6,6]],
       "rationale": "Le centre du plateau (5,7) maximise les directions d'expansion. Les cases immédiatement adjacentes sont acceptables. Un coup hors du centre (e.g. coin (0,0)) est stratégiquement inférieur car il réduit les options d'expansion à un seul quadrant."
+    },
+    {
+      "id": "reponse_ouverture",
+      "category": "opening",
+      "description": "P1 a joué au centre (5,7). P0 doit répondre près du centre ou à distance égale pour contester le contrôle central.",
+      "w": 11, "h": 15, "n": 2, "tm": false,
+      "moves": [[5,7]],
+      "expectedBest": [4,7],
+      "acceptAlternatives": [[6,7],[5,6],[5,8],[4,6],[6,8],[4,8],[6,6],[3,7],[7,7],[5,5],[5,9]],
+      "rationale": "La réponse à une ouverture centrée doit rester dans la zone d'influence centrale pour contester le contrôle. Un coup éloigné (>3 cases) abandonne le centre à l'adversaire. Les réponses diagonales et adjacentes sont acceptables."
     }
   ]
 }

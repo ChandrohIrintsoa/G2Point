@@ -8,21 +8,25 @@
      6. plus de candidats (rayon 8 vs 4)   (moreCands)   — mesure le coût/bénéfice d'un scan spatial élargi
      7. budget de recherche doublé        (biggerBudget)— mesure si l'IA est limitée par le temps ou l'algo
      8. sans recherche profonde            (noDeep)      — mesure l'apport de searchBeam (vs heuristique seule)
-   Affiche victoires/nuls/défaites, le score et un intervalle de confiance de Wilson à 95 % : une différence dont l'intervalle contient 0,5
-   n'est PAS établie. À lancer avec assez de parties (≥ 100) avant de conclure. */
+
+   Audit P1 : IC95 basé sur la variance empirique de X ∈ {0, 0.5, 1} (W/D/L), pas Wilson inadapté aux nulles.
+   Audit P2 : un rapport JSON est archivé dans bench/ablation-<commit>-<ts>.json avec commit, seeds, scores, IC. */
+const fs=require('node:fs'),path=require('node:path');
 const E=require('../public/js/engine.js'),T=require('../public/js/trainer.js');
 const games=Math.max(2,+process.env.G2_ABL_GAMES||20),size=+process.env.G2_ABL_SIZE||9;
-function wilson(k,n,z=1.96){if(!n)return[0,1];const p=k/n,d=1+z*z/n,c=p+z*z/(2*n),m=z*Math.sqrt(p*(1-p)/n+z*z/(4*n*n));return[(c-m)/d,(c+m)/d]}
+/* Borne inférieure de l'IC 95% pour X ∈ {0, 0.5, 1}. */
+function scoreLow95(mean,w,d,n,z=1.96){if(!n)return 0;const ex2=(w+0.25*d)/n,v=Math.max(0,ex2-mean*mean),se=Math.sqrt(v/n);return mean-z*se}
 function duel(a,b,label){
-  let w=0,l=0,d=0;
+  let w=0,l=0,d=0,completed=0,incomplete=0;
   for(let i=0;i<games;i++){
     const r=T.playGame(E,{a:{lvl:3,params:a},b:{lvl:3,params:b},swap:i%2===1,seed:1000+i,size:[size,size]});
-    if(!r.complete)continue;if(r.winner===0)w++;else if(r.winner===1)l++;else d++;
+    if(!r.complete){incomplete++;continue}
+    completed++;if(r.winner===0)w++;else if(r.winner===1)l++;else d++;
   }
-  const n=w+l+d,k=w+d/2,[lo,hi]=wilson(k,n);
+  const n=completed,k=w+d/2,score=n?k/n:.5,lo=scoreLow95(score,w,d,n),hi=2*score-lo;
   const verdict=lo>.5?'avantage établi':hi<.5?'désavantage établi':'non concluant';
-  console.log(`${label.padEnd(40)} ${String(w).padStart(3)} V · ${String(d).padStart(3)} N · ${String(l).padStart(3)} D / ${String(n).padStart(3)} | score ${(n?k/n:.5).toFixed(3)} IC95 [${lo.toFixed(2)} ; ${hi.toFixed(2)}] → ${verdict}`);
-  return{label,w,d,n,score:n?k/n:.5,lo,hi,verdict};
+  console.log(`${label.padEnd(40)} ${String(w).padStart(3)} V · ${String(d).padStart(3)} N · ${String(l).padStart(3)} D / ${String(n).padStart(3)} (+${incomplete} inc.) | score ${(n?score:.5).toFixed(3)} IC95 [${lo.toFixed(2)} ; ${hi.toFixed(2)}] → ${verdict}`);
+  return{label,score:+score.toFixed(4),ic95Low:+lo.toFixed(4),ic95High:+hi.toFixed(4),w,d,l,n:completed,incomplete,verdict};
 }
 console.log(`Ablation Champion, ${games} parties par ligne, plateau ${size}×${size}`);
 console.log('Référence = Champion complet. Une ligne "avantage établi" signifie que le composant ablaté contribue positivement.');
@@ -43,3 +47,10 @@ for(const r of results){
                'effet non concluant (augmenter G2_ABL_GAMES)';
   console.log(`  • ${r.label.padEnd(40)} → ${impact}`);
 }
+/* Audit P2 : archive un rapport JSON versionné, lié au commit. */
+const commit=process.env.GITHUB_SHA||process.env.COMMIT_SHA||'local';
+const outDir=path.join(__dirname,'..','bench');fs.mkdirSync(outDir,{recursive:true});
+const out=path.join(outDir,`ablation-${commit.slice(0,12)}-${Date.now()}.json`);
+const report={schema:1,createdAt:new Date().toISOString(),commit,gamesPerPair:games,size,seedBase:1000,results};
+fs.writeFileSync(out,JSON.stringify(report,null,2)+String.fromCharCode(10));
+console.log(`\nRapport archivé : ${out}`);

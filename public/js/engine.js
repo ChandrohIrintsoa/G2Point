@@ -141,7 +141,11 @@ const rng=a=>()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.i
 /* ---- IA : évaluation + mémoire de motifs apprise des parties ---- */
 // Poids : [gain de capture, perte/piège, blocage d'une capture adverse, voisins à moi, voisins adverses, motif appris]
 const DEFAULT_W=[10,10,7,.4,.2,2];
-const mutate=(w,r)=>w.map(x=>Math.max(0,+(x*(.7+r()*.6)).toFixed(3)));
+/* Mutation : facteur multiplicatif aléatoire dans [0.7, 1.3], puis CLAMP à [0, 100].
+   Le clamp supérieur est OBLIGATOIRE : le contrat serveur (worker.mjs isW6 + champion.js validW)
+   exige des poids ∈ [0, 100]. Sans clamp, un poids pouvait dériver au-dessus de 100 après
+   plusieurs générations (facteur 1.3^10 ≈ 14x), rendant le champion invalide. */
+const mutate=(w,r)=>w.map(x=>Math.max(0,Math.min(100,+(x*(.7+r()*.6)).toFixed(3))));
 /* Motif local (8 voisins) vu du joueur t : . vide, m à moi, o adverse, x capturé, b territoire, # bord */
 function patKey(s,x,y,t){
   let k='';
@@ -240,33 +244,55 @@ function positionValue(s,root,weights,profile){
    selon une évaluation tactique rapide ; les captures donnent un tour supplémentaire au même joueur. */
 function stateHash(s){return ensureHash(s).toString(36)}
 function searchBeam(s,root,depth,beam,weights,book,level,profile,ctx){
-  const evaluate=()=>positionValue(s,root,weights,profile);
+  /* Audit P0 : l'ancien searchBeam assumait une coalition adverse en 3-4 joueurs
+     (tous minimisaient la valeur de root). Désormais, en 3-4 joueurs, chaque acteur
+     MAXIMISE sa propre valeur (Max-n « égoïste »). En 2 joueurs (ou 2 équipes), le
+     minimax classique est conservé (zero-sum = l'adversaire minimiser = je maximiser). */
+  const tc=teamCount(s),minimax2p=tc<=2;
+  const actor=tmOf(s.tm,s.cur);
+  /* 2p : on évalue du point de vue de root (le minimax l'exige). 3-4p : chaque acteur
+     évalue du point de vue de l'acteur courant — les valeurs ne sont pas strictement
+     comparables entre niveaux mais la sélection de coups est correcte (selfish). */
+  const evalFor=minimax2p?root:actor;
+  const evaluate=()=>positionValue(s,evalFor,weights,profile);
   if(depth<=0||s.free<=0||ctx.aborted)return evaluate();
   if((++ctx.nodes&31)===0&&nowMs()>ctx.deadline){ctx.aborted=true;return evaluate()}
-  const hash=stateHash(s)+'|'+root+'|'+depth,hit=ctx.table.get(hash);
+  /* Cache key inclut evalFor : en 3-4p, la valeur dépend de l'acteur évaluateur. */
+  const hash=stateHash(s)+'|'+evalFor+'|'+depth,hit=ctx.table.get(hash);
   if(hit!==undefined)return hit;
-  const actor=tmOf(s.tm,s.cur),{list}=cands(s);
+  const {list}=cands(s);
   if(!list.length)return evaluate();
   const style=opponentStyle(profile),ranked=[];
   for(const [x,y] of list){
     if(ctx.aborted)break;
     const next=clone(s);if(!apply(next,[x,y]))continue;
     const own=next.sc[actor]-s.sc[actor],rival0=rival(s,actor),against=next.sc[rival0]-s.sc[rival0];
-    let h=(actor===root?own-against:against-own)*(weights[0]+weights[1])*.5;
-    const same=links(s,x,y,actor),enemy=links(s,x,y,rival0),sign=actor===root?1:-1;
+    /* 2p minimax : inverser le signe à non-root (l'adversaire minimise la valeur de root).
+       3-4p selfish : jamais inverser — chaque acteur calcule son propre gain. */
+    const sign=minimax2p?(actor===root?1:-1):1;
+    let h=sign*(own-against)*(weights[0]+weights[1])*.5;
+    const same=links(s,x,y,actor),enemy=links(s,x,y,rival0);
     h+=sign*(same*weights[3]+enemy*weights[4]);
-    if(actor!==root)h-=enemy*style.capture*weights[2]*.3;
+    /* Risque de capture adverse : pénalise les coups qui mettent l'acteur en danger.
+       2p : uniquement à non-root (l'adversaire va capturer root). 3-4p : toujours (l'acteur
+       risque une capture par son rival). */
+    if(minimax2p){if(actor!==root)h-=enemy*style.capture*weights[2]*.3}
+    else h-=enemy*style.capture*weights[2]*.3;
     const key=(PBook=>PBook&&PBook[strategyKey(s,x,y,actor)])(level.sbook)||book&&book[strategyKey(s,x,y,actor)];
     if(level.book&&key)h+=weights[5]*bookValue(key);
     ranked.push({next,h});
   }
-  ranked.sort((a,b)=>actor===root?b.h-a.h:a.h-b.h);
+  /* Tri : 2p = descendant à root, ascendant à non-root (min-first pour minimax).
+     3-4p = toujours descendant (max-first, chaque acteur cherche son meilleur coup). */
+  ranked.sort((a,b)=>minimax2p?(actor===root?b.h-a.h:a.h-b.h):b.h-a.h);
   const choices=ranked.slice(0,beam);
-  let value=actor===root?-Infinity:Infinity;
+  /* Init : 2p = -Inf à root (max), +Inf à non-root (min). 3-4p = -Inf (toujours max). */
+  let value=minimax2p?(actor===root?-Infinity:Infinity):-Infinity;
   for(const c of choices){
     if(ctx.aborted)break;
     const v=c.h+searchBeam(c.next,root,depth-1,beam,weights,book,level,profile,ctx);
-    value=actor===root?Math.max(value,v):Math.min(value,v);
+    if(minimax2p)value=actor===root?Math.max(value,v):Math.min(value,v);
+    else value=Math.max(value,v);
   }
   if(!Number.isFinite(value))value=evaluate();
   if(ctx.table.size>=TRANSPOSE_MAX)ctx.table.clear();
