@@ -6,6 +6,22 @@
 (function () {
   'use strict';
 
+  // ---- Liaison du bouton secondaire "bLocalPlay" vers le même handler que "bLocal" ----
+  // (le bouton "Jouer sur cet appareil" dans le panneau accordéon)
+  function bindLocalPlay() {
+    const primary = document.getElementById('bLocal');
+    const secondary = document.getElementById('bLocalPlay');
+    if (primary && secondary && !secondary.dataset.bound) {
+      secondary.dataset.bound = '1';
+      secondary.addEventListener('click', () => primary.click());
+    }
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bindLocalPlay);
+  } else {
+    bindLocalPlay();
+  }
+
   // Ne rien faire si l'élément hero n'existe pas (page de jeu par ex.)
   const canvas = document.getElementById('heroCanvas');
   if (!canvas) return;
