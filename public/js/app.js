@@ -244,7 +244,11 @@ function evolveAI(a,score,playerElo=1200){
   p.played=(p.played||0)+1;p.score=(p.score||0)+score;p.elo=Math.round(elo+24*(score-expected));
   a.games=(a.games||0)+1;a.active=(a.active+1)%a.pop.length;a.c=a.pop[a.active].w.slice();
   if(a.games>0&&a.games%10===0){
-    const ranked=a.pop.slice().sort((x,y)=>(y.score/(y.played||1))-(x.score/(x.played||1))||y.elo-x.elo);
+    /* Tri par score Laplace-smoothé : (score+3)/(played+6) — prior 0.5 sur 6 parties.
+       Sans lissage, un mutant qui gagne sa 1re partie (ratio 1.0) évinçait un chromosome
+       expérimenté à 7/10 (ratio 0.7), et l'IA perdait régulièrement ses meilleurs poids. */
+    const lap=w=>((w.score||0)+3)/((w.played||0)+6);
+    const ranked=a.pop.slice().sort((x,y)=>lap(y)-lap(x)||y.elo-x.elo);
     const next=ranked.slice(0,2).map(x=>({...x,w:x.w.slice()}));
     for(let i=0;i<6;i++){const parent=ranked[i%4];next.push({w:E.mutate(parent.w,E.rng(Date.now()+i*3571+a.games)),score:0,played:0,elo:1200})}
     a.pop=next;a.active=0;a.w=a.pop[0].w.slice();a.c=a.w.slice();
@@ -1167,10 +1171,14 @@ function drawAITrainingBoard(){
 function renderAILab(){
   const a=loadAI(),patterns=Object.keys(a.book||{}).length+Object.keys(a.sbook||{}).length,weights=(a.w||[]).length,played=a.st||{g:0,w:0};
   const rate=played.g?Math.round(100*(played.w||0)/played.g):0;
-  const qi=Math.round((a.pop||[]).reduce((best,p)=>Math.max(best,+p.elo||0),1200));
+  const pop=a.pop||[];
+  /* ELO IA en jeu : celui du chromosome ACTIF (a.pop[a.active]) — reflète la force réelle de l'IA qui joue.
+     ELO record : le max historique de la population — utile pour voir le potentiel atteint. */
+  const qiActive=Math.round((pop[a.active||0]||{}).elo||1200);
+  const qiRecord=Math.round(pop.reduce((best,p)=>Math.max(best,+p.elo||0),1200));
   const op=a.opponent||{samples:0,captures:0,cluster:0,edge:0},style=E.opponentStyle(op);
   const mastered=window.G2Brain?G2Brain.masteredCount(a):0,deviceId=typeof devId==='function'?devId():'local';
-  const stats=[['ELO IA calibré',qi+' pts'],['Parties apprises',a.st?.g||0],['Motifs mémorisés',patterns],['Motifs maîtrisés',mastered],['Appareil courant',String(deviceId).slice(0,18)],['Synchronisation cloud',window.G2Sync&&window.G2Sync.status().enabled?'Activée':'Locale uniquement'],['Anti-motifs humains',Object.keys(a.antiBook||{}).length+Object.keys(a.antiSBook||{}).length],['Journal récent',(a.log||[]).length+'/500'],['Population génétique',(a.pop||[]).length+' chromosomes'],['Auto-parties cachées',a.simulations||0],['Adversaire observé',op.samples+' coups'],['Style adverse','Captures '+Math.round(style.capture*100)+' % · chaînes '+Math.round(style.cluster*100)+' %'],['Victoires IA',rate+' %']];
+  const stats=[['ELO IA en jeu',qiActive+' pts'],['ELO IA record',qiRecord+' pts'],['Parties apprises',a.st?.g||0],['Motifs mémorisés',patterns],['Motifs maîtrisés',mastered],['Appareil courant',String(deviceId).slice(0,18)],['Synchronisation cloud',window.G2Sync&&window.G2Sync.status().enabled?'Activée':'Locale uniquement'],['Anti-motifs humains',Object.keys(a.antiBook||{}).length+Object.keys(a.antiSBook||{}).length],['Journal récent',(a.log||[]).length+'/500'],['Population génétique',pop.length+' chromosomes'],['Auto-parties cachées',a.simulations||0],['Adversaire observé',op.samples+' coups'],['Style adverse','Captures '+Math.round(style.capture*100)+' % · chaînes '+Math.round(style.cluster*100)+' %'],['Victoires IA',rate+' %']];
   const host=$('aiStats');host.replaceChildren();
   for(const [label,value] of stats){const card=document.createElement('div'),name=document.createElement('span'),v=document.createElement('strong');card.className='ai-stat';name.textContent=label;v.textContent=value;card.append(name,v);host.append(card)}
   const restore=document.createElement('button');restore.type='button';restore.textContent='Restaurer la mémoire IA précédente';restore.hidden=!jget('g2p.ai.bak',null);
