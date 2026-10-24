@@ -283,6 +283,71 @@ body.board-fs{overflow:hidden}
   .wr-score__fill,.wr-war__hp-fill,.wr-train-row__bar-fill{transition:none}
 }
 
+.wr-open-btn{
+  display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:12px;width:100%;
+  padding:14px 16px;border-radius:12px;cursor:pointer;
+  background:linear-gradient(135deg,rgba(5,217,232,.12),rgba(124,92,255,.1));
+  border:1px solid rgba(5,217,232,.35);color:var(--tx);
+  font-family:inherit;text-align:left;
+  transition:transform .2s var(--ease-out),box-shadow .2s,border-color .2s;
+  position:relative;overflow:hidden;
+}
+.wr-open-btn::before{
+  content:"";position:absolute;top:0;left:-100%;width:100%;height:100%;
+  background:linear-gradient(90deg,transparent,rgba(5,217,232,.15),transparent);
+  transition:left .6s var(--ease-out);
+}
+.wr-open-btn:hover{
+  transform:translateY(-2px);
+  border-color:var(--neon);
+  box-shadow:0 8px 24px rgba(0,0,0,.3),0 0 20px rgba(5,217,232,.25);
+}
+.wr-open-btn:hover::before{left:100%}
+.wr-open-btn:active{transform:translateY(0) scale(.99)}
+.wr-open-btn__icon{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:38px;height:38px;border-radius:10px;
+  background:linear-gradient(135deg,var(--neon),var(--violet));
+  color:#001018;font-size:18px;font-weight:800;
+  box-shadow:0 0 12px rgba(5,217,232,.5);
+}
+.wr-open-btn__text{display:flex;flex-direction:column;gap:2px;min-width:0}
+.wr-open-btn__title{
+  font:700 14px var(--disp);letter-spacing:.06em;text-transform:uppercase;color:var(--tx);
+}
+.wr-open-btn__hint{
+  font:400 11px var(--body);color:var(--mut);
+}
+.wr-open-btn__arrow{
+  color:var(--neon);font-size:18px;font-weight:700;
+  transition:transform .2s var(--ease-out);
+}
+.wr-open-btn:hover .wr-open-btn__arrow{transform:translateX(4px)}
+
+.wr-hold-bar{
+  position:absolute;left:0;bottom:0;width:100%;height:3px;
+  background:rgba(255,255,255,.08);overflow:hidden;pointer-events:none;
+}
+.wr-hold-bar__fill{
+  width:100%;height:100%;
+  background:linear-gradient(90deg,var(--neon),var(--hot));
+  box-shadow:0 0 10px var(--neon);
+  transform:scaleX(0);transform-origin:left;
+  transition:transform .05s linear;
+}
+#progSummary{position:relative}
+#progSummary.observer-holding{
+  color:var(--neon)!important;
+  text-shadow:0 0 12px var(--neon);
+}
+
+@media(max-width:600px){
+  .wr-open-btn{padding:12px;gap:10px}
+  .wr-open-btn__icon{width:34px;height:34px;font-size:16px}
+  .wr-open-btn__title{font-size:13px}
+  .wr-open-btn__hint{font-size:10px}
+}
+
 
 /* Discussion et notifications au-dessus du calque de jeu en plein écran. */
 #chatToasts{z-index:10030}

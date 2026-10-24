@@ -159,13 +159,61 @@ $('trSyncNow').onclick=()=>{if(window.G2Sync){window.G2Sync.now().then(renderTra
 $('trReset').onclick=()=>{if(confirm('Remettre à zéro les séries et statistiques de l’entraînement ?')){trainApi()&&trainApi().reset();renderTrain()}};
 $('observerClose').onclick=()=>monitor.hidden=true;
 $('observerClear').onclick=()=>$('observerLog').replaceChildren();
-let holdTimer=0,holdStarted=0;
+
+function openObserver(){
+  monitor.hidden=false;
+  renderObserver();
+  renderTrain();
+  if(typeof seedChart==='function')seedChart();
+  if(typeof drawChart==='function')drawChart();
+}
+const wrOpenBtn=$('wrOpen');
+if(wrOpenBtn)wrOpenBtn.onclick=openObserver;
+
+const HOLD_MS=2000;
+let holdTimer=0,holdStart=0,holdRaf=0;
+const holdBar=document.createElement('div');
+holdBar.className='wr-hold-bar';
+holdBar.setAttribute('aria-hidden','true');
+const holdBarFill=document.createElement('div');
+holdBarFill.className='wr-hold-bar__fill';
+holdBar.append(holdBarFill);
+
+function tickHold(ts){
+  if(!holdStart){holdStart=ts}
+  const progress=Math.min(1,(ts-holdStart)/HOLD_MS);
+  holdBarFill.style.transform='scaleX('+progress+')';
+  if(progress<1&&holdStart){holdRaf=requestAnimationFrame(tickHold)}
+}
+function startHold(e){
+  if(e&&e.preventDefault)e.preventDefault();
+  holdStart=0;
+  summary.classList.add('observer-holding');
+  if(!summary.contains(holdBar))summary.append(holdBar);
+  cancelAnimationFrame(holdRaf);
+  holdRaf=requestAnimationFrame(tickHold);
+  clearTimeout(holdTimer);
+  holdTimer=setTimeout(()=>{
+    summary.classList.remove('observer-holding');
+    holdBarFill.style.transform='scaleX(0)';
+    openObserver();
+  },HOLD_MS);
+}
+function stopHold(){
+  clearTimeout(holdTimer);
+  cancelAnimationFrame(holdRaf);
+  holdStart=0;
+  holdBarFill.style.transform='scaleX(0)';
+  if(summary.contains(holdBar))summary.removeChild(holdBar);
+  summary.classList.remove('observer-holding');
+}
 if(summary){
-  summary.title='Maintenir appuyé pendant 15 secondes pour ouvrir l’observatoire IA';
-  const start=()=>{holdStarted=Date.now();clearTimeout(holdTimer);summary.classList.add('observer-holding');holdTimer=setTimeout(()=>{monitor.hidden=false;summary.classList.remove('observer-holding');renderObserver();renderTrain();},15000)};
-  const stop=()=>{clearTimeout(holdTimer);summary.classList.remove('observer-holding')};
-  summary.addEventListener('pointerdown',start);['pointerup','pointerleave','pointercancel','blur'].forEach(ev=>summary.addEventListener(ev,stop));
+  summary.title='Maintenir appuyé 2 s pour ouvrir l’observatoire IA';
+  summary.addEventListener('pointerdown',startHold);
+  ['pointerup','pointerleave','pointercancel','blur'].forEach(ev=>summary.addEventListener(ev,stopHold));
   summary.addEventListener('contextmenu',e=>e.preventDefault());
+  summary.addEventListener('touchstart',e=>{e.preventDefault();startHold()},{passive:false});
+  ['touchend','touchcancel'].forEach(ev=>summary.addEventListener(ev,stopHold));
 }
 const trajectory=[];
 const warState={moves:0,lastMoveAt:0,redScore:0,cyanScore:0,running:false};
