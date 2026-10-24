@@ -66,11 +66,16 @@ test('un playerId réclamé par un compte ne peut pas être utilisé par un autr
   assert.equal(get.status,403,'lecture refusée aussi');
 });
 
-test('sans FIREBASE_PROJECT_ID le comportement historique est conservé',async()=>{
+test('sans FIREBASE_PROJECT_ID : fail-closed par défaut (503), legacy opt-in via G2_LEGACY_NO_AUTH (200)',async()=>{
   const W=await import('../cloudflare/worker.mjs');W._resetForTests();
-  const env={DB:fakeDb(),ALLOWED_ORIGINS:ORIGIN};
-  const r=await W.default.fetch(req('/api/profile',{method:'PUT',body:{playerId:'player_123456',nickname:'X'}}),env);
-  assert.equal(r.status,200);
+  // 1. Fail-closed par défaut : une route privée sans Firebase n'est plus accessible.
+  const env1={DB:fakeDb(),ALLOWED_ORIGINS:ORIGIN};
+  const r1=await W.default.fetch(req('/api/profile',{method:'PUT',body:{playerId:'player_123456',nickname:'X'}}),env1);
+  assert.equal(r1.status,503,'fail-closed : authentification indisponible');
+  // 2. Opt-in legacy explicite : les installations isolées retrouvent le comportement historique.
+  const env2={DB:fakeDb(),ALLOWED_ORIGINS:ORIGIN,G2_LEGACY_NO_AUTH:'1'};
+  const r2=await W.default.fetch(req('/api/profile',{method:'PUT',body:{playerId:'player_123456',nickname:'X'}}),env2);
+  assert.equal(r2.status,200,'opt-in legacy rétablit l\'accès historique');
 });
 
 test('un corps trop gros est refusé sans être lu en entier (Content-Length puis flux)',async()=>{
@@ -88,10 +93,20 @@ test('un corps trop gros est refusé sans être lu en entier (Content-Length pui
 
 test('limitation de fréquence atomique : au-delà de 30 écritures/minute → 429',async()=>{
   const W=await import('../cloudflare/worker.mjs');W._resetForTests();
-  const env={DB:fakeDb(),ALLOWED_ORIGINS:ORIGIN};let last;
+  // G2_LEGACY_NO_AUTH=1 : on isole le test du rate-limit (l'auth est couverte par les autres tests).
+  const env={DB:fakeDb(),ALLOWED_ORIGINS:ORIGIN,G2_LEGACY_NO_AUTH:'1'};
   const calls=[];for(let i=0;i<35;i++)calls.push(W.default.fetch(req('/api/profile',{method:'PUT',body:{playerId:'player_123456',nickname:'A'},headers:{'CF-Connecting-IP':'1.2.3.4'}}),env));
   const codes=(await Promise.all(calls)).map(r=>r.status);
   assert.equal(codes.filter(c=>c===200).length,30);assert.equal(codes.filter(c=>c===429).length,5);
+});
+
+test('rateOk fail-closed : panne D1 → 429 (et non fail-open qui laisserait passer tout le trafic)',async()=>{
+  const W=await import('../cloudflare/worker.mjs');W._resetForTests();
+  // D1 qui jette sur toute requête : rateOk doit retourner false (fail-closed).
+  const brokenDb={prepare(){return{bind(){return{async first(){throw new Error('D1 indisponible')},async run(){throw new Error('D1 indisponible')}}}}}};
+  const env={DB:brokenDb,ALLOWED_ORIGINS:ORIGIN,G2_LEGACY_NO_AUTH:'1'};
+  const r=await W.default.fetch(req('/api/profile',{method:'PUT',body:{playerId:'player_123456',nickname:'A'},headers:{'CF-Connecting-IP':'1.2.3.4'}}),env);
+  assert.equal(r.status,429,'panne D1 → 429 plutôt que fail-open');
 });
 
 test('archives : un abandon est pris en compte dans le résultat (audit 2.4)',async()=>{

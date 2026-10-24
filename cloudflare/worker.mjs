@@ -108,6 +108,11 @@ async function ensureTables(db){
   await db.prepare('CREATE TABLE IF NOT EXISTS player_links(player_id TEXT NOT NULL, uid TEXT NOT NULL, created_at INTEGER NOT NULL DEFAULT (unixepoch()), PRIMARY KEY(player_id,uid))').run();
   await db.prepare('CREATE TABLE IF NOT EXISTS link_codes(code TEXT PRIMARY KEY, player_id TEXT NOT NULL, exp INTEGER NOT NULL)').run();
   await db.prepare('CREATE TABLE IF NOT EXISTS ai_proposals(player_id TEXT PRIMARY KEY, json TEXT NOT NULL, sim INTEGER NOT NULL DEFAULT 0, at INTEGER NOT NULL DEFAULT (unixepoch()))').run();
+  // Tables précédemment créées uniquement par schema.sql : sans elles, /api/profile, /api/progress, /api/ai/player, /api/archive renvoyaient 500 silencieusement.
+  await db.prepare('CREATE TABLE IF NOT EXISTS player_profiles(player_id TEXT PRIMARY KEY, nickname TEXT, created_at INTEGER NOT NULL DEFAULT (unixepoch()), updated_at INTEGER NOT NULL DEFAULT (unixepoch()))').run();
+  await db.prepare('CREATE TABLE IF NOT EXISTS player_progress(player_id TEXT PRIMARY KEY, progress_json TEXT NOT NULL, updated_at INTEGER NOT NULL DEFAULT (unixepoch()))').run();
+  await db.prepare('CREATE TABLE IF NOT EXISTS player_ai(player_id TEXT PRIMARY KEY, weights_json TEXT NOT NULL, games INTEGER NOT NULL DEFAULT 0, wins INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL DEFAULT (unixepoch()))').run();
+  await db.prepare('CREATE TABLE IF NOT EXISTS game_archives(game_id TEXT PRIMARY KEY, player_id TEXT NOT NULL, result TEXT, moves_json TEXT NOT NULL, width INTEGER NOT NULL, height INTEGER NOT NULL, players INTEGER NOT NULL, team INTEGER NOT NULL DEFAULT 0, mode TEXT NOT NULL, ip_hash TEXT, created_at INTEGER NOT NULL DEFAULT (unixepoch()))').run();
   tablesReady=true;
 }
 export const _resetForTests=()=>{tablesReady=false;jwksCache={at:0,keys:null}};
@@ -122,9 +127,14 @@ async function bindOwner(db,playerId,uid){
   return !!link;
 }
 /* Portail des routes privées. Retourne une Response d'erreur, ou null si l'accès est autorisé.
-   Sans FIREBASE_PROJECT_ID (installation ancienne), le comportement historique est conservé. */
+   Fail-closed : si FIREBASE_PROJECT_ID est absent, les routes privées renvoient 503 sauf opt-in legacy explicite (G2_LEGACY_NO_AUTH=1).
+   Le mode legacy ne doit être activé qu'en dev local isolé. */
 async function gate(req,env,h,playerId){
-  if(!env.FIREBASE_PROJECT_ID||!env.DB)return null;
+  if(!env.DB)return json({error:'base indisponible',requestId:h['X-Request-ID']},503,h);
+  if(!env.FIREBASE_PROJECT_ID){
+    if(env.G2_LEGACY_NO_AUTH!=='1')return json({error:'authentification indisponible sur ce serveur',requestId:h['X-Request-ID']},503,h);
+    return null; // opt-in explicite : comportement historique pour installations isolées.
+  }
   const m=/^Bearer (.+)$/.exec(req.headers.get('Authorization')||'');
   const who=m?await verifyFirebaseToken(m[1],env):null;
   if(!who)return json({error:'authentification requise'},401,{...h,'WWW-Authenticate':'Bearer'});
@@ -139,7 +149,11 @@ async function rateOk(db,key,limit,windowSec){
     const row=await db.prepare('INSERT INTO rate_limits(k,c,exp) VALUES(?,1,unixepoch()+?) ON CONFLICT(k) DO UPDATE SET c=c+1 RETURNING c').bind(k,windowSec*2).first();
     if(Math.random()<.01)await db.prepare('DELETE FROM rate_limits WHERE exp<unixepoch()').run();
     return (row&&row.c||1)<=limit;
-  }catch(e){console.error('[G2Point Worker] limitation indisponible',e&&e.message);return true} // en cas de panne D1 on laisse passer plutôt que de couper le jeu
+  }catch(e){
+    console.error('[G2Point Worker] limitation indisponible',e&&e.message);
+    // Fail-closed par défaut : en cas de panne D1, on refuse plutôt que d'ouvrir le robinet.
+    return false;
+  }
 }
 const ipHash=(req,env)=>sha((env.IP_SALT||'')+(req.headers.get('CF-Connecting-IP')||'?'));
 const safeObject=v=>v&&typeof v==='object'&&!Array.isArray(v);
@@ -307,7 +321,8 @@ export function validProposal(b){
   if(b.book!=null){
     if(typeof b.book!=='object'||Array.isArray(b.book))return false;
     const keys=Object.keys(b.book);if(keys.length>PROP_MAX_BOOK)return false;
-    for(const k of keys){const e=b.book[k];if(k.length>200||!Array.isArray(e)||e.length!==4||e.some(v=>!Number.isFinite(v)))return false}
+    // Les poids d'un motif doivent rester bornés : sans cela, un candidat peut soumettre book:{k:[1e15,1e15,1e15,1e15]} et contaminer le pipeline d'entraînement.
+    for(const k of keys){const e=b.book[k];if(k.length>200||!Array.isArray(e)||e.length!==4||e.some(v=>!Number.isFinite(v)||v<0||v>100))return false}
   }
   return true;
 }
@@ -357,11 +372,35 @@ export async function handleAi(_env,h){
   return json({schema:3,book:{},games:0,learning:false},200,{...h,'Cache-Control':'public, max-age=60'});
 }
 
+/* ---- Effacement RGPD : supprime toutes les données d'un joueur (sauf logs d'audit propriétaire). ---- */
+async function handleAccount(req,env,h){
+  const db=env.DB;
+  if(!db)return json({error:'base indisponible',requestId:h['X-Request-ID']},503,h);
+  if(req.method!=='DELETE')return json({error:'méthode refusée'},405,h);
+  const id=getPlayerId(req,new URL(req.url));
+  if(!validPlayerId(id))return json({error:'identifiant invalide'},400,h);
+  {const denied=await gate(req,env,h,id);if(denied)return denied}
+  await ensureTables(db);
+  const pid=id;
+  // Effacement des données joueur (profils, progression, IA, propositions).
+  // player_owner et player_links sont conservés : ils servent d'audit anti-revente de playerId.
+  await db.prepare('DELETE FROM player_profiles WHERE player_id=?').bind(pid).run();
+  await db.prepare('DELETE FROM player_progress WHERE player_id=?').bind(pid).run();
+  await db.prepare('DELETE FROM player_ai WHERE player_id=?').bind(pid).run();
+  await db.prepare('DELETE FROM player_brain WHERE player_id=?').bind(pid).run();
+  await db.prepare('DELETE FROM ai_proposals WHERE player_id=?').bind(pid).run();
+  await db.prepare('DELETE FROM game_archives WHERE player_id=?').bind(pid).run();
+  await db.prepare('DELETE FROM link_codes WHERE player_id=?').bind(pid).run();
+  return json({ok:true,deleted:['profile','progress','ai','brain','proposals','archives','link_codes'],retained:['player_owner','player_links']},200,h);
+}
+
 export default{
   async fetch(req,env){
     const url=new URL(req.url),allowed=cors(req,env),requestId=req.headers.get('cf-ray')||crypto.randomUUID();
     const h={...(allowed||{}),'X-Request-ID':requestId};
-    /* lecture publique et anonyme des propositions (l'entraînement central n'envoie pas d'en-tête Origin) */
+    /* Lecture publique et anonyme des propositions : l'entraînement central (scripts/champion.js) y accède côté serveur,
+       sans en-tête Origin. Les données sont volontairement publiques (voir handleProposal) ;
+       un rate-limit global (120/min/IP) protège déjà contre le scraping. */
     const openRead=req.method==='GET'&&url.pathname==='/api/ai/proposals'&&!req.headers.get('Origin');
     if(req.method==='OPTIONS')return new Response(null,{status:allowed?204:403,headers:h});
     if(!allowed&&!openRead)return json({error:'origine non autorisée',requestId},403,h);
@@ -380,6 +419,7 @@ export default{
       if(url.pathname==='/api/ai/proposals'&&req.method==='GET')return await handleProposal(req,env,h);
       if(url.pathname==='/api/link/create')return await handleLink(req,env,h,'create');
       if(url.pathname==='/api/link/redeem')return await handleLink(req,env,h,'redeem');
+      if(url.pathname==='/api/account'&&req.method==='DELETE')return await handleAccount(req,env,h);
       return json({error:'introuvable'},404,h);
     }catch(e){
       console.error('[G2Point Worker]',{requestId,method:req.method,path:url.pathname,error:e&&e.message||String(e),stack:e&&e.stack||null});

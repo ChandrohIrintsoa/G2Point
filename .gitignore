@@ -4,3 +4,9 @@ firebase-debug.log
 firestore-debug.log
 ui-debug.log
 .DS_Store
+
+# Configs locales (à copier depuis les *.example) — ne pas committer les valeurs réelles
+.firebaserc
+# wrangler.toml utilise database_id D1 ; déplacer les valeurs sensibles dans des secrets
+# Cloudflare (wrangler secret) plutôt que dans le fichier. Le fichier reste committé car
+# wrangler l'exige, mais les IDs/UUIDs ne sont PAS des credentials (accès protégé par compte Cloudflare).
