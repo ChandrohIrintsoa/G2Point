@@ -27,31 +27,130 @@ setInterval(leaveFullscreenOnResult,250);
 
 /* Laboratoire manuel retiré : accès au moniteur d'observation par appui long de 15 s. */
 const lab=$('aiLab'),launch=$('aiLabLaunch'),summary=$('progSummary');
-if(lab)lab.hidden=true; /* Le bouton du laboratoire reste accessible dans le menu. */
-const monitor=document.createElement('section');monitor.id='aiObserver';monitor.className='ai-observer';monitor.hidden=true;monitor.innerHTML='<header><div><small>APPRENTISSAGE AUTONOME</small><h2>Observatoire IA</h2></div><button type="button" id="observerClose">Fermer</button></header><p>L’IA observe les coups, les menaces et les trajectoires possibles autour de chaque point.</p><div class="observer-stats" id="observerStats"></div><button type="button" class="pri" id="observerLive">Demander une simulation en direct</button><div class="observer-log" id="observerLog" aria-live="polite">En attente d’une partie…</div><button type="button" id="observerClear">Effacer le journal visuel</button>';
+if(lab)lab.hidden=true;
+const monitor=document.createElement('section');
+monitor.id='aiObserver';
+monitor.className='ai-observer ai-war-room';
+monitor.hidden=true;
+monitor.setAttribute('role','dialog');
+monitor.setAttribute('aria-modal','true');
+monitor.setAttribute('aria-label','Tableau de bord de guerre IA');
+monitor.innerHTML=`
+  <div class="wr-shell">
+    <header class="wr-header">
+      <div class="wr-header__id">
+        <span class="wr-header__pulse" aria-hidden="true"></span>
+        <div>
+          <small class="wr-header__kicker">APPRENTISSAGE AUTONOME</small>
+          <h2 class="wr-header__title">Observatoire IA</h2>
+        </div>
+      </div>
+      <div class="wr-header__actions">
+        <span class="wr-header__live" id="wrLive"><span class="wr-live__dot"></span><span class="wr-live__label">Standby</span></span>
+        <button type="button" id="observerClose" class="wr-header__close" aria-label="Fermer">×</button>
+      </div>
+    </header>
+
+    <div class="wr-grid">
+      <div class="wr-card wr-card--kpis">
+        <div class="wr-card__head"><span class="wr-card__title">Métriques</span><span class="wr-card__tag">Live</span></div>
+        <div class="wr-kpis">
+          <div class="wr-kpi"><span class="wr-kpi__val" id="wrKpiGames">0</span><span class="wr-kpi__label">Parties</span></div>
+          <div class="wr-kpi"><span class="wr-kpi__val" id="wrKpiSims">0</span><span class="wr-kpi__label">Simulations</span></div>
+          <div class="wr-kpi"><span class="wr-kpi__val" id="wrKpiPatterns">0</span><span class="wr-kpi__label">Motifs</span></div>
+          <div class="wr-kpi"><span class="wr-kpi__val" id="wrKpiMoves">0</span><span class="wr-kpi__label">Coups</span></div>
+        </div>
+      </div>
+
+      <div class="wr-card wr-card--score">
+        <div class="wr-card__head"><span class="wr-card__title">Score de force IA</span><span class="wr-card__tag" id="wrForceTag">N/A</span></div>
+        <div class="wr-score">
+          <div class="wr-score__bar"><div class="wr-score__fill" id="wrScoreFill"></div></div>
+          <div class="wr-score__legend"><span>Faible</span><span class="wr-score__val" id="wrScoreVal">0%</span><span>Maître</span></div>
+        </div>
+        <div class="wr-score__trend" id="wrScoreTrend">—</div>
+      </div>
+
+      <div class="wr-card wr-card--war">
+        <div class="wr-card__head"><span class="wr-card__title">Champ de bataille en direct</span><span class="wr-card__tag" id="wrWarTag">Idle</span></div>
+        <div class="wr-war">
+          <div class="wr-war__team wr-war__team--red">
+            <span class="wr-war__name">Rouge</span>
+            <span class="wr-war__score" id="wrRedScore">0</span>
+            <div class="wr-war__hp"><div class="wr-war__hp-fill" id="wrRedHp"></div></div>
+            <span class="wr-war__status" id="wrRedStatus">—</span>
+          </div>
+          <div class="wr-war__vs" aria-hidden="true">VS</div>
+          <div class="wr-war__team wr-war__team--cyan">
+            <span class="wr-war__name">Cyan</span>
+            <span class="wr-war__score" id="wrCyanScore">0</span>
+            <div class="wr-war__hp"><div class="wr-war__hp-fill" id="wrCyanHp"></div></div>
+            <span class="wr-war__status" id="wrCyanStatus">—</span>
+          </div>
+        </div>
+        <button type="button" class="pri wr-war__cta" id="observerLive">Lancer la guerre IA</button>
+      </div>
+
+      <div class="wr-card wr-card--chart">
+        <div class="wr-card__head"><span class="wr-card__title">Évolution temporelle</span><span class="wr-card__tag">60s</span></div>
+        <canvas class="wr-chart__canvas" id="wrChart" aria-label="Graphique d évolution IA"></canvas>
+        <div class="wr-chart__legend">
+          <span class="wr-legend wr-legend--red"><span class="wr-legend__dot"></span>Rouge</span>
+          <span class="wr-legend wr-legend--cyan"><span class="wr-legend__dot"></span>Cyan</span>
+          <span class="wr-legend wr-legend--gold"><span class="wr-legend__dot"></span>Force</span>
+        </div>
+      </div>
+
+      <div class="wr-card wr-card--log">
+        <div class="wr-card__head"><span class="wr-card__title">Journal de combat</span><button type="button" id="observerClear" class="wr-card__btn">Vider</button></div>
+        <div class="wr-log" id="observerLog" aria-live="polite"></div>
+      </div>
+
+      <div class="wr-card wr-card--train">
+        <div class="wr-card__head"><span class="wr-card__title">Entraînement continu</span><span class="wr-card__tag" id="wrTrainTag">—</span></div>
+        <div class="wr-train-controls">
+          <label>Mode<select id="trMode"><option value="auto">Auto (onglet caché)</option><option value="on">Toujours actif</option><option value="off">Arrêté</option></select></label>
+          <label>Pause après<select id="trPause"><option value="5">5 min</option><option value="15">15 min</option><option value="30">30 min</option><option value="60">1 h</option><option value="180">3 h</option></select></label>
+          <label>Série cible<select id="trStreak"><option value="10">10</option><option value="50">50</option><option value="100">100</option><option value="250">250</option></select></label>
+        </div>
+        <div class="wr-train-status" id="trStatus" aria-live="polite"></div>
+        <div class="wr-train-table" id="trTable"></div>
+        <div class="wr-train-sync" id="trSync" aria-live="polite"></div>
+        <div class="wr-train-actions">
+          <button type="button" id="trSyncNow">Synchroniser</button>
+          <button type="button" id="trReset">Reset séries</button>
+        </div>
+      </div>
+    </div>
+  </div>
+`;
 document.body.append(monitor);
-/* Panneau « Entraînement continu » : boucle IA contre IA (voir app.js, window.G2Train). */
-const trainBox=document.createElement('section');trainBox.className='train-box';trainBox.setAttribute('aria-label','Entraînement continu de l’IA');
-trainBox.innerHTML='<h3>Entraînement continu</h3>'
- +'<div class="live-opts"><label>Mode<select id="trMode"><option value="auto">Auto (onglet en arrière-plan)</option><option value="on">Toujours actif</option><option value="off">Arrêté</option></select></label>'
- +'<label>Pause après 100 victoires<select id="trPause"><option value="5">5 min</option><option value="15">15 min</option><option value="30">30 min</option><option value="60">1 h</option><option value="180">3 h</option></select></label>'
- +'<label>Série de victoires<select id="trStreak"><option value="10">10</option><option value="50">50</option><option value="100">100</option><option value="250">250</option></select></label></div>'
- +'<p id="trStatus" class="live-status" aria-live="polite"></p><div id="trTable" class="train-table"></div>'
- +'<p id="trSync" class="live-status" aria-live="polite"></p>'
- +'<div class="demo-actions"><button type="button" id="trSyncNow">Synchroniser maintenant</button><button type="button" id="trReset">Remettre les séries à zéro</button></div>';
-monitor.querySelector('.observer-stats').insertAdjacentElement('afterend',trainBox);
 const trainApi=()=>window.G2Train;
 function renderTrain(){
   const api=trainApi(),st=api&&api.status();if(!st)return;
   const set=(id,v)=>{const e=$(id);if(e&&document.activeElement!==e)e.value=String(v)};
   set('trMode',st.mode);set('trPause',st.cfg.pauseMin);set('trStreak',st.cfg.streakLimit);
   const left=st.paused?Math.max(0,Math.ceil((st.pauseUntil-Date.now())/60000)):0;
-  $('trStatus').textContent=(st.running?(st.paused?'En pause — reprise dans '+left+' min':'En cours'):'À l’arrêt')+' · '+st.games+' parties jouées'+(st.incomplete?' ('+st.incomplete+' interrompues)':'')+' · '+st.pauses+' pause(s)'+(st.note&&st.running?' · '+st.note:'')
-    +(st.lastPause?' · dernière série : '+st.lastPause.name+' ('+st.lastPause.streak+')':'');
+  const statusText=(st.running?(st.paused?'En pause — reprise dans '+left+' min':'En cours'):'À l’arrêt')+' · '+st.games+' parties'+(st.incomplete?' · '+st.incomplete+' interrompues':'')+' · '+st.pauses+' pause(s)'+(st.lastPause?' · dernière série : '+st.lastPause.name+' ('+st.lastPause.streak+')':'');
+  const statusEl=$('trStatus');if(statusEl)statusText!==statusEl.textContent&&(statusEl.textContent=statusText);
+  const trainTag=$('wrTrainTag');if(trainTag)trainTag.textContent=st.running?(st.paused?'Pause':'Live'):'Idle';
   const sy=window.G2Sync&&window.G2Sync.status();
-  $('trSync').textContent=!sy?'':!sy.enabled?'Cloud non configuré : l’IA évolue sur cet appareil uniquement.':sy.note?sy.note:sy.last?'Cerveau IA synchronisé entre vos appareils · version '+sy.version+' · il y a '+Math.max(0,Math.round((Date.now()-sy.last)/60000))+' min'+(sy.dirty?' · modifications en attente':''):'Synchronisation en attente…';
-  const t=$('trTable');t.replaceChildren();
-  for(const p of st.players){const row=document.createElement('div');row.textContent=p.name+' : '+p.w+' V · '+p.l+' D · '+p.d+' N · série '+p.streak+' / '+st.cfg.streakLimit;t.append(row)}
+  const syncText=!sy?'':!sy.enabled?'Cloud non configuré : l’IA évolue sur cet appareil uniquement.':sy.note?sy.note:sy.last?'Cerveau IA synchronisé · v'+sy.version+' · il y a '+Math.max(0,Math.round((Date.now()-sy.last)/60000))+' min'+(sy.dirty?' · en attente':''):'Synchronisation en attente…';
+  const syncEl=$('trSync');if(syncEl)syncText!==syncEl.textContent&&(syncEl.textContent=syncText);
+  const t=$('trTable');if(t){
+    t.replaceChildren();
+    for(const p of st.players){
+      const row=document.createElement('div');
+      row.className='wr-train-row';
+      const total=p.w+p.l+p.d||1;
+      const winRate=Math.round(p.w/total*100);
+      row.innerHTML='<span class="wr-train-row__name"></span><span class="wr-train-row__stats"></span><div class="wr-train-row__bar"><div class="wr-train-row__bar-fill"></div></div>';
+      row.querySelector('.wr-train-row__name').textContent=p.name;
+      row.querySelector('.wr-train-row__stats').textContent=p.w+'V · '+p.l+'D · '+p.d+'N · série '+p.streak+'/'+st.cfg.streakLimit;
+      row.querySelector('.wr-train-row__bar-fill').style.width=winRate+'%';
+      t.append(row);
+    }
+  }
 }
 $('trMode').onchange=()=>{trainApi()&&trainApi().setMode($('trMode').value);renderTrain()};
 $('trPause').onchange=()=>{trainApi()&&trainApi().setConfig({pauseMin:+$('trPause').value})};
@@ -69,14 +168,66 @@ if(summary){
   summary.addEventListener('contextmenu',e=>e.preventDefault());
 }
 const trajectory=[];
+const warState={moves:0,lastMoveAt:0,redScore:0,cyanScore:0,running:false};
 function renderObserver(){
-  const ai=window.G2Engine,stats=$('observerStats');if(!stats)return;
+  const ai=window.G2Engine;if(!ai)return;
   const a=(()=>{try{return JSON.parse(localStorage.getItem('g2p.ai')||'{}')}catch(e){return {}}})();
-  stats.textContent='Parties observées : '+(a.games||0)+' · Simulations : '+(a.simulations||0)+' · Motifs : '+Object.keys(a.book||{}).length;
-  const log=$('observerLog');log.replaceChildren();
-  trajectory.slice(-24).reverse().forEach(t=>{const row=document.createElement('div');row.textContent=t;log.append(row)});
+  const games=a.games||0,sims=a.simulations||0,patterns=Object.keys(a.book||{}).length;
+  setText('wrKpiGames',games);
+  setText('wrKpiSims',sims);
+  setText('wrKpiPatterns',patterns);
+  setText('wrKpiMoves',warState.moves);
+  const force=Math.min(100,Math.round((patterns/40)*40+Math.min(40,games/25)+Math.min(20,sims/50)));
+  const fill=document.getElementById('wrScoreFill');
+  if(fill)fill.style.width=force+'%';
+  setText('wrScoreVal',force+'%');
+  const tag=document.getElementById('wrForceTag');
+  if(tag)tag.textContent=force<25?'Débutant':force<50?'Intermédiaire':force<75?'Avancé':force<90?'Expert':'Maître';
+  const trend=document.getElementById('wrScoreTrend');
+  if(trend&&trajectory.length){
+    const recent=trajectory.length;
+    trend.textContent=recent>5?'Tendance ↗':'Tendance →';
+  }
+  setText('wrRedScore',warState.redScore);
+  setText('wrCyanScore',warState.cyanScore);
+  const maxScore=Math.max(10,warState.redScore+warState.cyanScore);
+  const redHp=document.getElementById('wrRedHp'),cyanHp=document.getElementById('wrCyanHp');
+  if(redHp)redHp.style.width=Math.max(5,100-warState.redScore/maxScore*100)+'%';
+  if(cyanHp)cyanHp.style.width=Math.max(5,100-warState.cyanScore/maxScore*100)+'%';
+  setText('wrRedStatus',warState.running?'En combat':'Standby');
+  setText('wrCyanStatus',warState.running?'En combat':'Standby');
+  const log=document.getElementById('observerLog');
+  if(log){
+    const frag=document.createDocumentFragment();
+    trajectory.slice(-30).reverse().forEach(t=>{
+      const row=document.createElement('div');row.className='wr-log__line';
+      const m=t.match(/^(\S+)\s+—\s+(.+)$/);
+      if(m){
+        const time=document.createElement('span');time.className='wr-log__time';time.textContent=m[1];
+        const body=document.createElement('span');body.className='wr-log__body';body.textContent=m[2];
+        row.append(time,body);
+      }else{row.textContent=t}
+      frag.append(row);
+    });
+    log.replaceChildren(frag);
+  }
 }
-function logTrajectory(text){trajectory.push(new Date().toLocaleTimeString('fr-FR')+' — '+text);if(trajectory.length>120)trajectory.shift();if(!monitor.hidden)renderObserver()}
+function setText(id,v){const e=document.getElementById(id);if(e&&String(e.textContent)!==String(v))e.textContent=v}
+function setLive(state){
+  const live=document.getElementById('wrLive');
+  if(!live)return;
+  live.dataset.state=state;
+  const label=live.querySelector('.wr-live__label');
+  if(label)label.textContent=state==='live'?'Live':state==='paused'?'Pause':'Standby';
+  const warTag=document.getElementById('wrWarTag');
+  if(warTag)warTag.textContent=state==='live'?'Live':state==='paused'?'Pause':'Idle';
+  warState.running=state==='live';
+}
+function logTrajectory(text){
+  trajectory.push(new Date().toLocaleTimeString('fr-FR')+' — '+text);
+  if(trajectory.length>120)trajectory.shift();
+  if(!monitor.hidden)renderObserver();
+}
 
 /* Observation passive : journalise le choix moteur sans modifier sa décision tactique. */
 const E=window.G2Engine;
@@ -109,14 +260,20 @@ function liveReset(){
   if(!E)return;
   const [w,h]=SIZES[$('demoSize').value]||SIZES['11x15'];
   live.s=E.create(w,h,2,false);live.moves=0;live.last=null;live.flash=null;live.over=false;
+  warState.moves=0;warState.redScore=0;warState.cyanScore=0;
   $('demoThink').textContent='';liveStatus('Terrain '+w+' × '+h+' prêt. Rouge commence.');liveDraw();
+  if(!monitor.hidden)renderObserver();
 }
-function liveStatus(text){$('demoStatus').textContent=text}
+function liveStatus(text){const el=$('demoStatus');if(el)el.textContent=text}
 function liveScore(){const s=live.s;return LIVE_NAMES[0]+' '+s.sc[0]+' — '+LIVE_NAMES[1]+' '+s.sc[1]}
 function liveFinish(){
   live.over=true;liveStop();const s=live.s,d=s.sc[0]-s.sc[1];
+  warState.redScore=s.sc[0];warState.cyanScore=s.sc[1];
+  setLive('paused');
   liveStatus('Terminé après '+live.moves+' coups · '+liveScore()+' · '+(d===0?'égalité':LIVE_NAMES[d>0?0:1]+' gagne')+'.');
   $('demoRun').textContent='Relancer';liveDraw();
+  if(!monitor.hidden)renderObserver();
+  logTrajectory('Partie terminée : '+liveScore()+' · '+(d===0?'égalité':LIVE_NAMES[d>0?0:1]+' gagne'));
 }
 function liveStep(){
   if(!E||live.busy)return;
@@ -128,19 +285,21 @@ function liveStep(){
     const mover=s.cur,m=E.aiMove(s,E.rng((Date.now()+live.moves*7919)|0),aiParams());
     if(!m||!E.apply(s,m)){liveFinish();return}
     live.moves++;live.last=m;live.flash=s.cap.slice();live.flashTeam=s.capT;
+    warState.moves=live.moves;warState.redScore=s.sc[0];warState.cyanScore=s.sc[1];
     const think=trajectory.length?trajectory[trajectory.length-1].replace(/^\S+ — /,''):'';
-    $('demoThink').textContent=think;
+    const demoThinkEl=$('demoThink');if(demoThinkEl)demoThinkEl.textContent=think;
     liveStatus('Coup '+live.moves+' · '+liveScore()+(s.bonus?' · capture, '+LIVE_NAMES[mover]+' rejoue':' · au tour de '+LIVE_NAMES[s.cur]));
     liveDraw();
+    if(!monitor.hidden)renderObserver();
     if(s.free<=0)liveFinish();
   }catch(e){console.warn('Simulation interrompue',e);liveStop()}
   finally{live.busy=false}
 }
-function liveStop(){live.running=false;clearTimeout(live.timer);$('demoRun').textContent=live.over?'Relancer':live.moves?'Reprendre':'Lancer la simulation'}
+function liveStop(){live.running=false;clearTimeout(live.timer);setLive('paused');const btn=$('demoRun');if(btn)btn.textContent=live.over?'Relancer':live.moves?'Reprendre':'Lancer la simulation'}
 function liveLoop(){
   if(!live.running)return;
   liveStep();
-  if(live.running)live.timer=setTimeout(liveLoop,SPEEDS[$('demoSpeed').value]||SPEEDS.normal); /* le coup suivant n'est planifié qu'une fois le précédent terminé */
+  if(live.running)live.timer=setTimeout(liveLoop,SPEEDS[$('demoSpeed').value]||SPEEDS.normal);
 }
 function liveDraw(){
   const s=live.s,c=$('demoBoard');if(!s||!c||demo.hidden)return;
@@ -203,15 +362,77 @@ $('demoStep').onclick=()=>{liveStop();liveStep()};
 $('demoRun').onclick=()=>{
   if(live.running){liveStop();return}
   if(live.over||!live.s)liveReset();
-  live.running=true;$('demoRun').textContent='Pause';liveLoop();
+  live.running=true;setLive('live');$('demoRun').textContent='Pause';liveLoop();
 };
 $('demoReset').onclick=()=>{liveStop();liveReset();$('demoRun').textContent='Lancer la simulation'};
 $('demoSize').onchange=()=>{liveStop();liveReset()};
-$('observerLive').onclick=openLive;
+$('observerLive').onclick=()=>{
+  if(!E)return;
+  if(live.over||!live.s||!live.running){
+    if(live.over||!live.s)liveReset();
+    live.running=true;setLive('live');
+    const btn=$('demoRun');if(btn)btn.textContent='Pause';
+    liveLoop();
+  }
+  logTrajectory('Guerre IA lancée par l’opérateur');
+};
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!demo.hidden)closeLive()});
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&live.running)liveStop()}); /* pas de calcul en arrière-plan */
-addEventListener('resize',()=>{if(!demo.hidden)liveDraw()});
+addEventListener('resize',()=>{if(!demo.hidden)liveDraw();drawChart()});
 setInterval(()=>{if(!monitor.hidden){renderObserver();renderTrain()}},2000);
+
+const chartHistory={red:[],cyan:[],force:[],moves:[]};
+const CHART_MAX=60;
+function pushChartPoint(){
+  chartHistory.red.push(warState.redScore);
+  chartHistory.cyan.push(warState.cyanScore);
+  const ai=(()=>{try{return JSON.parse(localStorage.getItem('g2p.ai')||'{}')}catch(e){return {}}})();
+  const force=Math.min(100,Math.round((Object.keys(ai.book||{}).length/40)*40+Math.min(40,(ai.games||0)/25)+Math.min(20,(ai.simulations||0)/50)));
+  chartHistory.force.push(force);
+  chartHistory.moves.push(warState.moves);
+  if(chartHistory.red.length>CHART_MAX){chartHistory.red.shift();chartHistory.cyan.shift();chartHistory.force.shift();chartHistory.moves.shift()}
+}
+function drawChart(){
+  const c=document.getElementById('wrChart');if(!c||monitor.hidden)return;
+  const r=window.devicePixelRatio||1;
+  const w=c.parentElement.clientWidth-24||280,h=140;
+  const pw=Math.round(w*r),ph=Math.round(h*r);
+  if(c.width!==pw||c.height!==ph){c.width=pw;c.height=ph}
+  c.style.width=w+'px';c.style.height=h+'px';
+  const ctx=c.getContext('2d');ctx.setTransform(r,0,0,r,0,0);ctx.clearRect(0,0,w,h);
+  ctx.strokeStyle='rgba(255,255,255,.05)';ctx.lineWidth=1;ctx.beginPath();
+  for(let i=0;i<=4;i++){const y=i*h/4;ctx.moveTo(0,y);ctx.lineTo(w,y)}
+  for(let i=0;i<=6;i++){const x=i*w/6;ctx.moveTo(x,0);ctx.lineTo(x,h)}
+  ctx.stroke();
+  const series=[
+    {data:chartHistory.red,color:'#ff2a6d',label:'Rouge'},
+    {data:chartHistory.cyan,color:'#05d9e8',label:'Cyan'},
+    {data:chartHistory.force,color:'#ffb800',label:'Force'},
+    {data:chartHistory.moves,color:'#7c5cff',label:'Coups'}
+  ];
+  const maxVal=Math.max(10,...chartHistory.red,...chartHistory.cyan,...chartHistory.force,...chartHistory.moves);
+  for(const s of series){
+    if(s.data.length<2)continue;
+    ctx.strokeStyle=s.color;ctx.lineWidth=2;ctx.shadowColor=s.color;ctx.shadowBlur=8;ctx.beginPath();
+    s.data.forEach((v,i)=>{
+      const x=i*w/(CHART_MAX-1);
+      const y=h-(v/maxVal)*h;
+      if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+    });
+    ctx.stroke();ctx.shadowBlur=0;
+    const last=s.data[s.data.length-1];
+    const lx=(s.data.length-1)*w/(CHART_MAX-1);
+    const ly=h-(last/maxVal)*h;
+    ctx.fillStyle=s.color;ctx.beginPath();ctx.arc(lx,ly,3,0,Math.PI*2);ctx.fill();
+  }
+}
+function seedChart(){
+  if(chartHistory.red.length===0){
+    for(let i=0;i<2;i++){pushChartPoint()}
+  }
+}
+seedChart();
+setInterval(()=>{if(!monitor.hidden){pushChartPoint();drawChart()}},1000);
 
 
 /* Thèmes supplémentaires, avec variables de rendu cohérentes pour le moteur canvas. */
