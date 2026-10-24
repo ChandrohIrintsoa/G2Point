@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "description": "Corpus tactique G2Point — positions annotées avec le meilleur coup attendu. Audit section 7A : mesurer les erreurs stratégiques de l'IA sur des positions de référence plutôt que sur ses propres auto-parties.",
+  "positions": [
+    {
+      "id": "capture_immediate_1",
+      "category": "capture",
+      "description": "P0 peut capturer (5,5) de P1 en jouant (5,6) — ferme le losange (5,4)-(4,5)-(6,5)-(5,6) autour de (5,5).",
+      "w": 11, "h": 15, "n": 2, "tm": false,
+      "moves": [[5,4],[5,5],[4,5],[0,0],[6,5],[0,2]],
+      "expectedBest": [5,6],
+      "acceptAlternatives": [],
+      "rationale": "P0 a 3 des 4 coins du losange encerclant (5,5). Jouer (5,6) capture immédiatement 1 point adverse (gain maximal). Tout autre coup donne à P1 l'occasion de fuir ou de contre-capturer un coin de P0. La capture est non négociable : refuser 1 gain immédiat sans compensation claire est une erreur tactique."
+    },
+    {
+      "id": "parer_menace_capture",
+      "category": "block",
+      "description": "P1 a 3 des 4 coins du losange autour de (5,5) de P0. P0 doit bloquer en jouant (5,6) pour empêcher la capture.",
+      "w": 11, "h": 15, "n": 2, "tm": false,
+      "moves": [[5,5],[5,4],[0,0],[4,5],[0,1],[6,5]],
+      "expectedBest": [5,6],
+      "acceptAlternatives": [],
+      "rationale": "Si P0 ne joue pas (5,6), P1 le fera au prochain tour et capturera (5,5) — perte nette d'un point et d'un territoire. P0 n'a pas d'autre capture immédiate disponible pour compenser. La défense est obligatoire."
+    },
+    {
+      "id": "ouverture_centree",
+      "category": "opening",
+      "description": "Plateau vide 11x15, 2 joueurs. P0 doit ouvrir au centre pour maximiser les options d'expansion.",
+      "w": 11, "h": 15, "n": 2, "tm": false,
+      "moves": [],
+      "expectedBest": [5,7],
+      "acceptAlternatives": [[4,7],[6,7],[5,6],[5,8],[4,6],[6,8],[4,8],[6,6]],
+      "rationale": "Le centre du plateau (5,7) maximise les directions d'expansion. Les cases immédiatement adjacentes sont acceptables. Un coup hors du centre (e.g. coin (0,0)) est stratégiquement inférieur car il réduit les options d'expansion à un seul quadrant."
+    }
+  ]
+}

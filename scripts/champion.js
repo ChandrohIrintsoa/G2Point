@@ -16,6 +16,10 @@ const readJson=(f,d)=>{try{return JSON.parse(fs.readFileSync(f,'utf8'))}catch{re
 const validW=w=>Array.isArray(w)&&w.length===6&&w.every(v=>Number.isFinite(v)&&v>=0&&v<=100);
 const params=c=>({w:c.w,book:c.book,sbook:c.sbook,antiBook:c.antiBook,antiSBook:c.antiSBook});
 const trimBook=(b,n)=>{const ks=Object.keys(b||{});if(ks.length<=n)return b||{};ks.sort((p,q)=>(b[q][0]||0)-(b[p][0]||0));const o={};ks.slice(0,n).forEach(k=>o[k]=b[k]);return o};
+/* Borne inférieure de l'intervalle de confiance de Wilson à 95 % pour une proportion.
+   Audit section 6 : un seuil de 0.56 sur N parties ne prouve pas la significativité statistique.
+   On exige désormais que wilson_lo(score, n_total) > 0.5 (i.e. l'IC95 ne contient pas 0.5). */
+function wilsonLo(p,n,z=1.96){if(!n)return 0;const d=1+z*z/n,c=p+z*z/(2*n),m=z*Math.sqrt(p*(1-p)/n+z*z/(4*n*n));return(c-m)/d}
 
 async function fetchProposals(){
   const url=process.env.G2_PROPOSALS_URL||'https://g2point-api.irintsoachandroh.workers.dev/api/ai/proposals';
@@ -87,15 +91,23 @@ async function main(){
     const g2=V.gate(E,T,params(best.cand),params(champ),{games:cfg.gateGames/2,hofGames:0,minScore:cfg.minScore,techTol:1,size:cfg.sizes[1],seed:seed+1,suite:[],allowEmptySuite:true,hof:[]});
     sims+=cfg.gateGames;stats={g9:g1.stats,g11:g2.stats.match};
     const total=(g1.stats.match.score*g1.stats.match.n+g2.stats.match.score*g2.stats.match.n)/Math.max(1,g1.stats.match.n+g2.stats.match.n);
-    const reasons=[...g1.reasons.filter(r=>!/^match contre la référence/.test(r)),...(total<cfg.minScore?[`match global ${total.toFixed(2)} < ${cfg.minScore}`]:[])];
+    /* Audit section 6 : seuil minScore seul ne prouve pas la significativité statistique.
+       Ajout d'un second critère : la borne inférieure de Wilson (95 %) doit dépasser 0.5,
+       sinon la différence avec le champion courant n'est pas établie (bruit possible). */
+    const nTotal=g1.stats.match.n+g2.stats.match.n,wlo=wilsonLo(total,nTotal);
+    const reasons=[
+      ...g1.reasons.filter(r=>!/^match contre la référence/.test(r)),
+      ...(total<cfg.minScore?[`match global ${total.toFixed(2)} < ${cfg.minScore}`]:[]),
+      ...(wlo<=.5?[`IC95 bas ${wlo.toFixed(2)} ≤ 0.5 (non significatif sur ${nTotal} parties)`]:[])
+    ];
     gateOk=reasons.length===0;
-    reports.push({round,src:best.src,screen:+best.screen.toFixed(2),score:+total.toFixed(3),pass:gateOk,reasons});
+    reports.push({round,src:best.src,screen:+best.screen.toFixed(2),score:+total.toFixed(3),wilsonLo:+wlo.toFixed(3),nTotal,pass:gateOk,reasons});
     if(gateOk){
       hofAll.push({version:champ.version,w:champ.w});while(hofAll.length>cfg.hofKeep+2)hofAll.shift();
       champ={schema:1,version:champ.version+1,at:Date.now(),simulations:champ.simulations+sims,w:best.cand.w,c:best.cand.w,
         book:trimBook(best.cand.book,1500),sbook:trimBook(best.cand.sbook,1500),antiBook:trimBook(best.cand.antiBook,1500),antiSBook:trimBook(best.cand.antiSBook,1500),
-        report:{from:best.src,score:+total.toFixed(3),tech:g1.stats.tech,hof:g1.stats.hof}};
-      sims=0;promoted++;say(`Round ${round} : PROMU v${champ.version} (${best.src}, score ${total.toFixed(2)}, techniques ${g1.stats.tech.cand}/${g1.stats.tech.base})`);
+        report:{from:best.src,score:+total.toFixed(3),wilsonLo:+wlo.toFixed(3),nTotal,tech:g1.stats.tech,hof:g1.stats.hof}};
+      sims=0;promoted++;say(`Round ${round} : PROMU v${champ.version} (${best.src}, score ${total.toFixed(2)}, IC95-lo ${wlo.toFixed(2)} sur ${nTotal} parties, techniques ${g1.stats.tech.cand}/${g1.stats.tech.base})`);
     }else say(`Round ${round} : refusé (${best.src}) — ${reasons.join(' ; ')||'?'}`);
   }
   say(`Terminé : ${tried} candidats évalués, ${promoted} promotion(s) en ${((Date.now()-t0)/1000).toFixed(0)} s`);

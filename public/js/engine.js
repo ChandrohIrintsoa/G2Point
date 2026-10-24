@@ -318,13 +318,13 @@ function mctsRefine(s,root,candidates,weights,profile,rnd=Math.random,deadline=n
 const HARD_MAX_MS=2200;
 const nowMs=()=>typeof performance!=='undefined'&&performance.now?performance.now():Date.now();
 /* Cases candidates : vides, hors territoire confiné, proches d'un point existant */
-function cands(s){
+function cands(s,radius=CAND_RADIUS){
   const W=s.w,H=s.h,out=[];let any=false;
   for(let y=0;y<H;y++)for(let x=0;x<W;x++){
     if(s.o[y][x]){any=true;continue}
     if(s.blk[y][x])continue;
     let near=false;
-    for(let j=-CAND_RADIUS;j<=CAND_RADIUS&&!near;j++)for(let i=-CAND_RADIUS;i<=CAND_RADIUS;i++){const a=x+i,b=y+j;if(a>=0&&b>=0&&a<W&&b<H&&s.o[b][a]){near=true;break}}
+    for(let j=-radius;j<=radius&&!near;j++)for(let i=-radius;i<=radius;i++){const a=x+i,b=y+j;if(a>=0&&b>=0&&a<W&&b<H&&s.o[b][a]){near=true;break}}
     if(near)out.push([x,y]);
   }
   return{any,list:out};
@@ -398,7 +398,11 @@ function predictiveMap(s,opponent,horizon=FUTURE_HORIZON,budgetMs=140){
 }
 function aiMove(s,rnd=Math.random,P){
   const W=s.w,H=s.h,t=tmOf(s.tm,s.cur),opp=rival(s,t),startMs=nowMs(),late=()=>nowMs()-startMs>HARD_MAX_MS,w=(P&&P.w)||DEFAULT_W,book=P&&P.book,strategyBook=P&&P.sbook||book,antiBook=P&&P.antiBook,antiSBook=P&&P.antiSBook,L=LEVELS[(P&&P.lvl!=null)?P.lvl:1]||LEVELS[1],profile=P&&P.opponent;
-  const {any,list:c0}=cands(s),Z=P&&P.zone,cand=Z?c0.filter(([x,y])=>x>=Z[0]&&x<=Z[1]&&y>=Z[2]&&y<=Z[3]):c0; /* zone optionnelle : jeu compact (puzzles) */
+  /* Flags d'ablation (audit section 7C) : permettent de désactiver un composant de l'IA pour mesurer sa contribution réelle.
+     noBooks/noAnti : ignore les livres de motifs / anti-motifs. moreCands : élargit le rayon de 4 à 8.
+     biggerBudget : double le budget de recherche. noDeep : saute la recherche profonde (searchBeam + mctsRefine). */
+  const noBooks=!!(P&&P.noBooks),noAnti=!!(P&&P.noAnti),noDeep=!!(P&&P.noDeep),moreCands=!!(P&&P.moreCands),biggerBudget=!!(P&&P.biggerBudget);
+  const {any,list:c0}=cands(s,moreCands?8:CAND_RADIUS),Z=P&&P.zone,cand=Z?c0.filter(([x,y])=>x>=Z[0]&&x<=Z[1]&&y>=Z[2]&&y<=Z[3]):c0; /* zone optionnelle : jeu compact (puzzles) */
   if(!any){const c=[W>>1,H>>1];return legal(s,c[0],c[1])?c:null}
   if(!cand.length){for(let y=0;y<H;y++)for(let x=0;x<W;x++)if(legal(s,x,y)&&(!Z||(x>=Z[0]&&x<=Z[1]&&y>=Z[2]&&y<=Z[3])))return[x,y];return null}
   const scored=[];
@@ -407,11 +411,15 @@ function aiMove(s,rnd=Math.random,P){
     let v=(a.sc[t]-s.sc[t])*w[0]-(a.sc[opp]-s.sc[opp])*w[1];
     const b=clone(s);b.cur=opp;b._hash=computeHash(b);apply(b,[x,y]);v+=(b.sc[opp]-s.sc[opp])*w[2]*L.block; /* case où l'adversaire capturerait */
     for(const [dx,dy] of N8){const u=x+dx,q=y+dy;if(u<0||q<0||u>=W||q>=H)continue;const p=s.o[q][u];if(p==t+1)v+=w[3];else if(p)v+=w[4]}
-    const e=L.book&&book&&book[patKey(s,x,y,t)],se=L.book&&strategyBook&&strategyBook[strategyKey(s,x,y,t)]||L.book&&book&&book[strategyKey(s,x,y,t)];
-    if(e)v+=w[5]*Math.max(-2,Math.min(3,bookValue(e)));
-    if(se&&se[0]>=3)v+=w[5]*.65*Math.max(-2,Math.min(3,bookValue(se)));
+    if(!noBooks){
+      const e=L.book&&book&&book[patKey(s,x,y,t)],se=L.book&&strategyBook&&strategyBook[strategyKey(s,x,y,t)]||L.book&&book&&book[strategyKey(s,x,y,t)];
+      if(e)v+=w[5]*Math.max(-2,Math.min(3,bookValue(e)));
+      if(se&&se[0]>=3)v+=w[5]*.65*Math.max(-2,Math.min(3,bookValue(se)));
+    }
     /* Anti-motifs séparés : pénalise les schémas qui ont conduit à une victoire humaine. */
-    if(antiBook){const ak=antiBook[patKey(s,x,y,opp)];if(ak)v-=w[5]*1.4*Math.max(0,bookValue(ak))}if(antiSBook){const ask=antiSBook[strategyKey(s,x,y,opp)];if(ask&&ask[0]>=2)v-=w[5]*.7*Math.max(0,bookValue(ask));}
+    if(!noAnti){
+      if(antiBook){const ak=antiBook[patKey(s,x,y,opp)];if(ak)v-=w[5]*1.4*Math.max(0,bookValue(ak))}if(antiSBook){const ask=antiSBook[strategyKey(s,x,y,opp)];if(ask&&ask[0]>=2)v-=w[5]*.7*Math.max(0,bookValue(ask));}
+    }
     v+=rnd()*L.noise;scored.push({m:[x,y],v,cap:a.bonus});
   }
   scored.sort((p,q)=>q.v-p.v);
@@ -431,7 +439,7 @@ function aiMove(s,rnd=Math.random,P){
     const map=predictiveMap(s,opp,FUTURE_HORIZON,L.champion?200:130);
     for(const c of scored){const k=c.m[1]*W+c.m[0],risk=map.risk[k]||0;c.v+=risk*w[2]*.22;if(map.forecast.projected.has(k))c.v+=w[2]*.45}
   }
-  if(L.deep&&!late()){
+  if(L.deep&&!noDeep&&!late()){
     /* Phase 1 : pénalité tactique immédiate, renforcée si l'adversaire est agressif. */
     const style=opponentStyle(profile),defense=1+style.capture*.35+style.cluster*.2;
     for(const c of scored.slice(0,HARD_TOP)){
@@ -441,7 +449,7 @@ function aiMove(s,rnd=Math.random,P){
     }
     /* Recherche itérative : on conserve toujours le meilleur coup déjà évalué si le budget expire.
        Le cache de transpositions partage les positions identiques entre les branches. */
-    const budget=L.champion?1400:900,deadline=nowMs()+budget,ctx={table:new Map(),deadline,aborted:false,nodes:0};
+    const budget=(L.champion?1400:900)*(biggerBudget?2:1),deadline=nowMs()+budget,ctx={table:new Map(),deadline,aborted:false,nodes:0};
     const maxDepth=Math.min(L.champion?5:SEARCH_DEPTH,s.free<24?5:s.free<80?3:2),baseScores=new Map(scored.map(c=>[c.m.join(','),c.v])),top=L.champion?8:HARD_TOP,beam=L.champion?8:SEARCH_BEAM;
     for(let depth=1;depth<=maxDepth&&!ctx.aborted;depth++){
       const iteration=scored.slice(0,top).map(c=>{
