@@ -171,3 +171,76 @@ test('régression multijoueur : aiMove Champion (lvl=3) à 4 joueurs/équipes jo
     assert.equal(E.apply(s,m),true,'le coup doit être légal');
   }
 });
+
+/* ---- Audit section 10 P1 : aiMoveDebug instrumentation ----
+   Vérifie que aiMoveDebug renvoie une structure exploitable pour reproduire un coup suspect. */
+test('audit P1 : aiMoveDebug renvoie le coup choisi + décomposition par candidat',()=>{
+  const s=E.create(11,15,2,false);
+  for(const m of [[5,4],[5,5],[4,5],[0,0],[6,5],[0,2]])E.apply(s,m);
+  const dbg=E.aiMoveDebug(s,E.rng(42),{lvl:3,predictive:false});
+  assert.ok(Array.isArray(dbg.move)&&dbg.move.length===2,'dbg.move doit être [x,y]');
+  assert.ok(E.legal(s,dbg.move[0],dbg.move[1]),'le coup choisi doit être légal');
+  assert.ok(Array.isArray(dbg.candidates),'dbg.candidates doit être un tableau');
+  assert.ok(dbg.candidates.length>0,'au moins 1 candidat analysé');
+  /* Le coup choisi DOIT être dans les candidats analysés (bug corrigé : avant le tri par pertinence,
+     le top 20 venait du coin haut-gauche et le coup choisi pouvait être absent). */
+  const chosen=dbg.candidates.find(c=>c.isChosen);
+  assert.ok(chosen,'le coup choisi doit être marqué isChosen=true dans les candidats');
+  assert.ok(sameMove(chosen.move,dbg.move),'isChosen correspond au coup choisi');
+  /* Chaque candidat a une décomposition en composantes exploitables. */
+  for(const c of dbg.candidates){
+    assert.ok(c.components,'chaque candidat doit avoir components');
+    const k=c.components;
+    assert.equal(typeof k.immediateGain,'number','immediateGain doit être un nombre');
+    assert.equal(typeof k.denialValue,'number','denialValue doit être un nombre (audit section 3 : heuristique de déni)');
+    assert.equal(typeof k.replyRisk,'number','replyRisk doit être un nombre (vraie simulation de réponse)');
+    assert.equal(typeof k.ownNeighbors,'number','ownNeighbors doit être un nombre');
+    assert.equal(typeof k.enemyNeighbors,'number','enemyNeighbors doit être un nombre');
+    assert.equal(typeof k.positionValueAfter,'number','positionValueAfter doit être un nombre');
+  }
+  /* Budget : durée mesurée + niveau + flags (deep, tactic, champion). */
+  assert.ok(dbg.budget,'dbg.budget doit être présent');
+  assert.ok(dbg.budget.usedMs>=0,'usedMs doit être >= 0');
+  assert.equal(dbg.budget.level,'Champion','niveau Champion correct');
+  assert.equal(dbg.budget.deep,true,'deep=true pour Champion');
+  /* Meta : joueur racine, adversaire, nombre d'équipes. */
+  assert.equal(dbg.meta.rootPlayer,0,'P0 racine');
+  assert.equal(dbg.meta.opponent,1,'P1 adverse');
+  assert.equal(dbg.meta.teamCount,2,'2 équipes');
+});
+test('audit P1 : aiMoveDebug pour la position capture_immediate — le coup choisi doit avoir immediateGain > 0',()=>{
+  const s=E.create(11,15,2,false);
+  for(const m of [[5,4],[5,5],[4,5],[0,0],[6,5],[0,2]])E.apply(s,m);
+  const dbg=E.aiMoveDebug(s,E.rng(42),{lvl:3,predictive:false});
+  const chosen=dbg.candidates.find(c=>c.isChosen);
+  /* Pour cette position, le meilleur coup (5,6) capture (5,5) → immediateGain=1, replyRisk=0 (j'ai capturé, opp ne joue pas). */
+  assert.ok(chosen.components.immediateGain>0,'le coup choisi doit avoir un gain immédiat (capture)');
+  assert.equal(chosen.components.replyRisk,0,'replyRisk=0 après une capture (adversaire ne joue pas ensuite)');
+});
+test('audit P1 : aiMoveDebug documente la différence entre DENI (ligne 438) et RISQUE DE RÉPONSE (replyGain)',()=>{
+  /* denialValue et replyRisk sont deux signaux distincts par construction :
+     - denialValue simule l'adversaire jouant le MÊME coup que moi (heuristique de déni)
+     - replyRisk simule la MEILLEURE RÉPONSE adverse APRÈS mon coup (vraie simulation)
+     Sur une position où peu de captures sont possibles, les deux peuvent être 0 pour tous les
+     candidats — c'est OK. On vérifie ici qu'ils sont TOUJOURS calculés (non-undefined) et
+     que sur une position avec MENACE, au moins un candidat a replyRisk > 0. */
+  const s=E.create(11,15,2,false);
+  for(const m of [[5,4],[5,5],[4,5],[0,0],[6,5],[0,2]])E.apply(s,m);
+  const dbg=E.aiMoveDebug(s,E.rng(42),{lvl:3,predictive:false});
+  /* 1. Tous les candidats ont denialValue ET replyRisk comme nombres finis. */
+  for(const c of dbg.candidates){
+    assert.ok(Number.isFinite(c.components.denialValue),'denialValue doit être fini');
+    assert.ok(Number.isFinite(c.components.replyRisk),'replyRisk doit être fini');
+  }
+  /* 2. Sur une position avec MENACE adverse (P1 a 3 coins du losange autour de (8,8) de P0),
+     au moins un candidat a replyRisk > 0 — l'IA voit le risque. */
+  const s2=E.create(11,15,2,false);
+  /* 6 moves (cur=0 après) : P0 a (8,8),(5,4),(0,0). P1 a (8,7),(7,8),(9,8) — 3 coins du
+     losange autour de (8,8) de P0. Si P1 joue (8,9) au prochain tour, il capture (8,8). */
+  for(const m of [[8,8],[8,7],[5,4],[7,8],[0,0],[9,8]])E.apply(s2,m);
+  assert.equal(s2.cur,0,'P0 doit jouer (sinon le setup est faux)');
+  const dbg2=E.aiMoveDebug(s2,E.rng(42),{lvl:3,predictive:false});
+  const withRisk=dbg2.candidates.filter(c=>c.components.replyRisk>0);
+  assert.ok(withRisk.length>0,`sur position menacée, au moins un candidat a replyRisk > 0 (obtenu: ${withRisk.length}/${dbg2.candidates.length} avec risque)`);
+});
+function sameMove(a,b){return Array.isArray(a)&&Array.isArray(b)&&a.length===2&&b.length===2&&a[0]===b[0]&&a[1]===b[1]}

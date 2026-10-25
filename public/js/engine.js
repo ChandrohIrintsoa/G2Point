@@ -435,7 +435,7 @@ function aiMove(s,rnd=Math.random,P){
   for(const [x,y] of cand){
     const a=clone(s);apply(a,[x,y]);
     let v=(a.sc[t]-s.sc[t])*w[0]-(a.sc[opp]-s.sc[opp])*w[1];
-    const b=clone(s);b.cur=opp;b._hash=computeHash(b);apply(b,[x,y]);v+=(b.sc[opp]-s.sc[opp])*w[2]*L.block; /* case où l'adversaire capturerait */
+    const b=clone(s);b.cur=opp;b._hash=computeHash(b);apply(b,[x,y]);v+=(b.sc[opp]-s.sc[opp])*w[2]*L.block; /* Heuristique de DÉNI (audit section 3 — clarification) : cette ligne ne simule PAS la réponse de l'adversaire après mon coup. Elle mesure combien l'adversaire GAGNERAIT s'il jouait [x,y] à ma place — i.e. la valeur que je lui REFUSE en jouant [x,y] moi-même. C'est un signal de blocage, pas un signal de risque de contre-capture. La vraie simulation de réponse (replyGain) est faite plus bas, uniquement aux niveaux Normal (L.tactic) et Difficile/Champion (L.deep). À Facile, AUCUNE simulation — c'est intentionnel (niveau faible). Pour instrumenter les décisions, utiliser aiMoveDebug(). */
     for(const [dx,dy] of N8){const u=x+dx,q=y+dy;if(u<0||q<0||u>=W||q>=H)continue;const p=s.o[q][u];if(p==t+1)v+=w[3];else if(p)v+=w[4]}
     if(!noBooks){
       const e=L.book&&book&&book[patKey(s,x,y,t)],se=L.book&&strategyBook&&strategyBook[strategyKey(s,x,y,t)]||L.book&&book&&book[strategyKey(s,x,y,t)];
@@ -493,6 +493,49 @@ function aiMove(s,rnd=Math.random,P){
   }
   return scored[0].m;
 }
+
+/* Instrumentation des décisions (audit section 10 P1) : aiMoveDebug renvoie, en plus du coup
+   choisi, la décomposition du score pour chaque candidat. Permet de reproduire un coup suspect
+   et d'analyser pourquoi l'IA l'a choisi (gain immédiat, déni, risque de réponse, voisins...).
+   Approche post-hoc : n'altère PAS aiMove — la décomposition est recalculée après le choix.
+   Limitation : ne capture pas les ajustements de searchBeam/mctsRefine (recherche profonde).
+   Pour une trace complète incluant la recherche, il faudrait instrumenter aiMove elle-même. */
+const sameMove=(a,b)=>Array.isArray(a)&&Array.isArray(b)&&a.length===2&&b.length===2&&a[0]===b[0]&&a[1]===b[1];
+function aiMoveDebug(s,rnd=Math.random,P){
+  const startMs=nowMs();
+  const move=aiMove(s,rnd,P);
+  const elapsedMs=nowMs()-startMs;
+  const W=s.w,H=s.h,t=tmOf(s.tm,s.cur),opp=rival(s,t);
+  const w=(P&&P.w)||DEFAULT_W,L=LEVELS[(P&&P.lvl!=null)?P.lvl:1]||LEVELS[1];
+  const {any,list:c0}=cands(s,(P&&P.moreCands)?8:CAND_RADIUS);
+  if(!c0.length)return{move,candidates:[],budget:{usedMs:elapsedMs,level:L.name}};
+  /* Trie les candidats par pertinence (nb de voisins existants) avant de garder le top 20.
+     Sans ça, sur grand plateau, les 20 premiers candidats venaient du coin haut-gauche (loin
+     des pierres) et le coup choisi était absent de l'analyse — cas reproduit et corrigé. */
+  const sortedCands=c0.map(([x,y])=>({m:[x,y],n:links(s,x,y,t)+links(s,x,y,opp)})).sort((a,b)=>b.n-a.n);
+  const candidates=sortedCands.slice(0,20).map(({m:[x,y]})=>{
+    const a=clone(s);if(!apply(a,[x,y]))return null;
+    const immediateGain=a.sc[t]-s.sc[t];
+    /* DENI (audit section 3) : ce que l'adversaire gagnerait s'il jouait [x,y] à ma place.
+       C'est l'ancienne heuristique « suspecte » — désormais documentée comme déni, pas réponse. */
+    const b=clone(s);b.cur=opp;b._hash=computeHash(b);apply(b,[x,y]);
+    const denialValue=b.sc[opp]-s.sc[opp];
+    /* RISQUE DE RÉPONSE (vraie simulation) : si je ne capture pas, l'adversaire joue
+       ensuite. On calcule son gain maximum possible via replyGain. */
+    const replyRisk=immediateGain>0?0:replyGain(a,opp);
+    const ownNeighbors=links(s,x,y,t),enemyNeighbors=links(s,x,y,opp);
+    const positionValueAfter=positionValue(a,t,w,P&&P.opponent);
+    return{move:[x,y],isChosen:sameMove([x,y],move),components:{
+      immediateGain,denialValue,replyRisk,ownNeighbors,enemyNeighbors,positionValueAfter
+    }};
+  }).filter(Boolean);
+  return{
+    move,
+    candidates,
+    budget:{usedMs:Math.round(elapsedMs*10)/10,level:L.name,deep:!!L.deep,champion:!!L.champion,tactic:!!L.tactic},
+    meta:{rootPlayer:t,opponent:opp,teamCount:teamCount(s)}
+  };
+}
 /* Puzzle généré par l'IA : parties IA (Rouge niveau normal) contre IA faible (Bleu), on garde une position où Rouge
    a UN SEUL coup qui capture >= goal points. La difficulté (goal, nombre de pierres) croît avec l'intelligence de l'IA. */
 const ZONE=[2,8,3,11]; /* zone centrale où se joue le puzzle */
@@ -518,6 +561,6 @@ function genPuzzle(rnd=Math.random,intel=0,P,maxMs=1500){
   }
   return null;
 }
-const api={rival,teamCount,genPuzzle,puzzleSpec,create,scan,apply,legal,links,tmOf,grid,clone,rng,aiMove,learn,teach,observeOpponent,opponentStyle,positionValue,bookValue,patKey,strategyKey,mutate,imaginaryTargets,dijkstraTargets,aStarRoute,forecastOpponent,predictiveMap,mctsRefine,stateHash,rebuildHash:s=>{s._hash=computeHash(s);return s._hash.toString(36)},DEFAULT_W,LEVELS};
+const api={rival,teamCount,genPuzzle,puzzleSpec,create,scan,apply,legal,links,tmOf,grid,clone,rng,aiMove,aiMoveDebug,learn,teach,observeOpponent,opponentStyle,positionValue,bookValue,patKey,strategyKey,mutate,imaginaryTargets,dijkstraTargets,aStarRoute,forecastOpponent,predictiveMap,mctsRefine,replyGain,searchBeam,stateHash,rebuildHash:s=>{s._hash=computeHash(s);return s._hash.toString(36)},DEFAULT_W,LEVELS,CAND_RADIUS};
 root.G2Engine=api;if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:globalThis);
