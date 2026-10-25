@@ -477,16 +477,27 @@ function aiMove(s,rnd=Math.random,P){
        Le cache de transpositions partage les positions identiques entre les branches. */
     const budget=(L.champion?1400:900)*(biggerBudget?2:1),deadline=nowMs()+budget,ctx={table:new Map(),deadline,aborted:false,nodes:0};
     const maxDepth=Math.min(L.champion?5:SEARCH_DEPTH,s.free<24?5:s.free<80?3:2),baseScores=new Map(scored.map(c=>[c.m.join(','),c.v])),top=L.champion?8:HARD_TOP,beam=L.champion?8:SEARCH_BEAM;
+    /* Audit 'coup bleu suspect' : en début de partie (peu de pierres), positionValue retourne
+       ~0.10 pour tous les coups (rien à évaluer) → searchBeam * 0.22 devient le facteur dominant
+       mais sa valeur est du bruit de recherche (minimax sans matière). L'IA pouvait alors choisir
+       un coup sans contact adverse (enemyNeighbors=0) alors qu'un coup avec contact était classé
+       devant par l'heuristique initiale. Fix : le poids de searchBeam est graduel selon la densité
+       de pierres — quasi-nul au début (s.n<4), plein en milieu/fin de partie (s.n>=12). */
+    const searchBeamWeight=.22*Math.min(1,s.n/12);
     for(let depth=1;depth<=maxDepth&&!ctx.aborted;depth++){
       const iteration=scored.slice(0,top).map(c=>{
         const a=clone(s);apply(a,c.m);
-        return{m:c.m,v:baseScores.get(c.m.join(','))+searchBeam(a,t,depth,beam,w,book,{...L,sbook:strategyBook},profile,ctx)*.22};
+        return{m:c.m,v:baseScores.get(c.m.join(','))+searchBeam(a,t,depth,beam,w,book,{...L,sbook:strategyBook},profile,ctx)*searchBeamWeight};
       });
       if(!ctx.aborted)for(const q of iteration){const target=scored.find(c=>c.m[0]===q.m[0]&&c.m[1]===q.m[1]);if(target)target.v=q.v}
       scored.sort((p,q)=>q.v-p.v);
     }
     scored.sort((p,q)=>q.v-p.v);
-    if(L.champion&&!(P&&P.noMcts)&&!late()){
+    /* Audit 'coup bleu suspect' : mctsRefine (UCT bandit) est aussi vulnérable au bruit en
+       début de partie — ses rollouts utilisent la même heuristique qui retourne ~0.10 pour
+       tous les coups. UCT ne discrimine pas et le coup retenu peut être sans contact adverse.
+       Désactivé tant que le plateau n'a pas assez de matière (s.n < 6, soit ~3 coups/joueur). */
+    if(L.champion&&!(P&&P.noMcts)&&!late()&&s.n>=6){
       const mc=mctsRefine(s,t,scored.slice(0,8),w,profile,rnd,nowMs()+180,180);
       if(mc.move&&legal(s,mc.move[0],mc.move[1]))return mc.move;
     }
