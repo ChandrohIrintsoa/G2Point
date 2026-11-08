@@ -1,7 +1,461 @@
 {
- "at": 1792653449921,
- "version": 1,
- "tried": 0,
- "promoted": 1,
- "reports": []
+ "at": 1794126009291,
+ "version": 3,
+ "tried": 220,
+ "promoted": 2,
+ "reports": [
+  {
+   "round": 15,
+   "src": "mutation",
+   "screen": 0.65,
+   "score": 0.531,
+   "ic95Low": 0.434,
+   "nTotal": 80,
+   "w": 34,
+   "d": 17,
+   "pass": false,
+   "reasons": [
+    "match global 0.53 < 0.56",
+    "IC95 bas 0.43 ≤ 0.5 (non significatif sur 80 parties)"
+   ]
+  },
+  {
+   "round": 16,
+   "src": "mutation",
+   "screen": 0.6,
+   "score": 0.45,
+   "ic95Low": 0.373,
+   "nTotal": 80,
+   "w": 16,
+   "d": 40,
+   "pass": false,
+   "reasons": [
+    "match global 0.45 < 0.56",
+    "IC95 bas 0.37 ≤ 0.5 (non significatif sur 80 parties)"
+   ]
+  },
+  {
+   "round": 17,
+   "src": "mutation",
+   "screen": 0.8,
+   "score": 0.438,
+   "ic95Low": 0.354,
+   "nTotal": 80,
+   "w": 19,
+   "d": 32,
+   "pass": false,
+   "reasons": [
+    "match global 0.44 < 0.56",
+    "IC95 bas 0.35 ≤ 0.5 (non significatif sur 80 parties)"
+   ]
+  },
+  {
+   "round": 18,
+   "src": "mutation",
+   "screen": 0.65,
+   "score": 0.512,
+   "ic95Low": 0.424,
+   "nTotal": 80,
+   "w": 27,
+   "d": 28,
+   "pass": false,
+   "reasons": [
+    "match global 0.51 < 0.56",
+    "IC95 bas 0.42 ≤ 0.5 (non significatif sur 80 parties)"
+   ]
+  },
+  {
+   "round": 19,
+   "src": "mutation",
+   "screen": 0.55,
+   "score": 0.487,
+   "ic95Low": 0.41,
+   "nTotal": 80,
+   "w": 19,
+   "d": 40,
+   "pass": false,
+   "reasons": [
+    "match global 0.49 < 0.56",
+    "IC95 bas 0.41 ≤ 0.5 (non significatif sur 80 parties)"
+   ]
+  },
+  {
+   "round": 20,
+   "src": "mutation",
+   "screen": 0.6,
+   "score": 0.444,
+   "ic95Low": 0.343,
+   "nTotal": 80,
+   "w": 30,
+   "d": 11,
+   "pass": false,
+   "reasons": [
+    "perd contre v1 : 0.40 < 0.5",
+    "match global 0.44 < 0.56",
+    "IC95 bas 0.34 ≤ 0.5 (non significatif sur 80 parties)"
+   ]
+  },
+  {
+   "round": 21,
+   "src": "mutation",
+   "screen": 0.5,
+   "score": 0.556,
+   "ic95Low": 0.463,
+   "nTotal": 80,
+   "w": 34,
+   "d": 21,
+   "pass": false,
+   "reasons": [
+    "perd contre v1 : 0.40 < 0.5",
+    "match global 0.56 < 0.56",
+    "IC95 bas 0.46 ≤ 0.5 (non significatif sur 80 parties)"
+   ]
+  },
+  {
+   "round": 22,
+   "src": "mutation",
+   "screen": 0.55,
+   "score": 0.531,
+   "ic95Low": 0.437,
+   "nTotal": 80,
+   "w": 32,
+   "d": 21,
+   "pass": false,
+   "reasons": [
+    "match global 0.53 < 0.56",
+    "IC95 bas 0.44 ≤ 0.5 (non significatif sur 80 parties)"
+   ]
+  },
+  {
+   "round": 23,
+   "src": "mutation",
+   "screen": 0.55,
+   "score": 0.544,
+   "ic95Low": 0.444,
+   "nTotal": 80,
+   "w": 37,
+   "d": 13,
+   "pass": false,
+   "reasons": [
+    "match global 0.54 < 0.56",
+    "IC95 bas 0.44 ≤ 0.5 (non significatif sur 80 parties)"
+   ]
+  },
+  {
+   "round": 24,
+   "src": "mutation",
+   "screen": 0.6,
+   "score": 0.6,
+   "ic95Low": 0.516,
+   "nTotal": 80,
+   "w": 33,
+   "d": 30,
+   "pass": true,
+   "reasons": []
+  },
+  {
+   "round": 25,
+   "src": "mutation",
+   "screen": 0.65,
+   "score": 0.512,
+   "ic95Low": 0.424,
+   "nTotal": 80,
+   "w": 27,
+   "d": 28,
+   "pass": false,
+   "reasons": [
+    "match global 0.51 < 0.56",
+    "IC95 bas 0.42 ≤ 0.5 (non significatif sur 80 parties)"
+   ]
+  },
+  {
+   "round": 26,
+   "src": "mutation",
+   "screen": 0.6,
+   "score": 0.469,
+   "ic95Low": 0.375,
+   "nTotal": 80,
+   "w": 27,
+   "d": 21,
+   "pass": false,
+   "reasons": [
+    "match global 0.47 < 0.56",
+    "IC95 bas 0.37 ≤ 0.5 (non significatif sur 80 parties)"
+   ]
+  },
+  {
+   "round": 27,
+   "src": "mutation",
+   "screen": 0.75,
+   "score": 0.487,
+   "ic95Low": 0.394,
+   "nTotal": 80,
+   "w": 28,
+   "d": 22,
+   "pass": false,
+   "reasons": [
+    "match global 0.49 < 0.56",
+    "IC95 bas 0.39 ≤ 0.5 (non significatif sur 80 parties)"
+   ]
+  },
+  {
+   "round": 28,
+   "src": "mutation",
+   "screen": 0.5,
+   "score": 0.463,
+   "ic95Low": 0.368,
+   "nTotal": 80,
+   "w": 27,
+   "d": 20,
+   "pass": false,
+   "reasons": [
+    "perd contre v2 : 0.40 < 0.5",
+    "match global 0.46 < 0.56",
+    "IC95 bas 0.37 ≤ 0.5 (non significatif sur 80 parties)"
+   ]
+  },
+  {
+   "round": 29,
+   "src": "mutation",
+   "screen": 0.65,
+   "score": 0.5,
+   "ic95Low": 0.405,
+   "nTotal": 80,
+   "w": 30,
+   "d": 20,
+   "pass": false,
+   "reasons": [
+    "match global 0.50 < 0.56",
+    "IC95 bas 0.41 ≤ 0.5 (non significatif sur 80 parties)"
+   ]
+  },
+  {
+   "round": 30,
+   "src": "mutation",
+   "screen": 0.55,
+   "score": 0.481,
+   "ic95Low": 0.387,
+   "nTotal": 80,
+   "w": 28,
+   "d": 21,
+   "pass": false,
+   "reasons": [
+    "match global 0.48 < 0.56",
+    "IC95 bas 0.39 ≤ 0.5 (non significatif sur 80 parties)"
+   ]
+  },
+  {
+   "round": 31,
+   "src": "mutation",
+   "screen": 0.65,
+   "score": 0.475,
+   "ic95Low": 0.379,
+   "nTotal": 80,
+   "w": 29,
+   "d": 18,
+   "pass": false,
+   "reasons": [
+    "match global 0.47 < 0.56",
+    "IC95 bas 0.38 ≤ 0.5 (non significatif sur 80 parties)"
+   ]
+  },
+  {
+   "round": 32,
+   "src": "mutation",
+   "screen": 0.75,
+   "score": 0.494,
+   "ic95Low": 0.4,
+   "nTotal": 80,
+   "w": 29,
+   "d": 21,
+   "pass": false,
+   "reasons": [
+    "match global 0.49 < 0.56",
+    "IC95 bas 0.40 ≤ 0.5 (non significatif sur 80 parties)"
+   ]
+  },
+  {
+   "round": 33,
+   "src": "mutation",
+   "screen": 0.6,
+   "score": 0.456,
+   "ic95Low": 0.358,
+   "nTotal": 80,
+   "w": 29,
+   "d": 15,
+   "pass": false,
+   "reasons": [
+    "match global 0.46 < 0.56",
+    "IC95 bas 0.36 ≤ 0.5 (non significatif sur 80 parties)"
+   ]
+  },
+  {
+   "round": 34,
+   "src": "mutation",
+   "screen": 0.6,
+   "score": 0.444,
+   "ic95Low": 0.368,
+   "nTotal": 80,
+   "w": 15,
+   "d": 41,
+   "pass": false,
+   "reasons": [
+    "match global 0.44 < 0.56",
+    "IC95 bas 0.37 ≤ 0.5 (non significatif sur 80 parties)"
+   ]
+  },
+  {
+   "round": 35,
+   "src": "mutation",
+   "screen": 0.6,
+   "score": 0.4,
+   "ic95Low": 0.314,
+   "nTotal": 80,
+   "w": 18,
+   "d": 28,
+   "pass": false,
+   "reasons": [
+    "perd contre v2 : 0.40 < 0.5",
+    "match global 0.40 < 0.56",
+    "IC95 bas 0.31 ≤ 0.5 (non significatif sur 80 parties)"
+   ]
+  },
+  {
+   "round": 36,
+   "src": "mutation",
+   "screen": 0.6,
+   "score": 0.475,
+   "ic95Low": 0.383,
+   "nTotal": 80,
+   "w": 26,
+   "d": 24,
+   "pass": false,
+   "reasons": [
+    "match global 0.47 < 0.56",
+    "IC95 bas 0.38 ≤ 0.5 (non significatif sur 80 parties)"
+   ]
+  },
+  {
+   "round": 37,
+   "src": "mutation",
+   "screen": 0.6,
+   "score": 0.537,
+   "ic95Low": 0.446,
+   "nTotal": 80,
+   "w": 31,
+   "d": 24,
+   "pass": false,
+   "reasons": [
+    "perd contre v1 : 0.30 < 0.5",
+    "match global 0.54 < 0.56",
+    "IC95 bas 0.45 ≤ 0.5 (non significatif sur 80 parties)"
+   ]
+  },
+  {
+   "round": 38,
+   "src": "mutation",
+   "screen": 0.6,
+   "score": 0.544,
+   "ic95Low": 0.464,
+   "nTotal": 80,
+   "w": 25,
+   "d": 37,
+   "pass": false,
+   "reasons": [
+    "match global 0.54 < 0.56",
+    "IC95 bas 0.46 ≤ 0.5 (non significatif sur 80 parties)"
+   ]
+  },
+  {
+   "round": 39,
+   "src": "mutation",
+   "screen": 0.55,
+   "score": 0.463,
+   "ic95Low": 0.365,
+   "nTotal": 80,
+   "w": 29,
+   "d": 16,
+   "pass": false,
+   "reasons": [
+    "match global 0.46 < 0.56",
+    "IC95 bas 0.36 ≤ 0.5 (non significatif sur 80 parties)"
+   ]
+  },
+  {
+   "round": 40,
+   "src": "mutation",
+   "screen": 0.65,
+   "score": 0.438,
+   "ic95Low": 0.365,
+   "nTotal": 80,
+   "w": 13,
+   "d": 44,
+   "pass": false,
+   "reasons": [
+    "match global 0.44 < 0.56",
+    "IC95 bas 0.37 ≤ 0.5 (non significatif sur 80 parties)"
+   ]
+  },
+  {
+   "round": 41,
+   "src": "mutation",
+   "screen": 0.5,
+   "score": 0.463,
+   "ic95Low": 0.368,
+   "nTotal": 80,
+   "w": 27,
+   "d": 20,
+   "pass": false,
+   "reasons": [
+    "match global 0.46 < 0.56",
+    "IC95 bas 0.37 ≤ 0.5 (non significatif sur 80 parties)"
+   ]
+  },
+  {
+   "round": 42,
+   "src": "mutation",
+   "screen": 0.5,
+   "score": 0.55,
+   "ic95Low": 0.462,
+   "nTotal": 80,
+   "w": 30,
+   "d": 28,
+   "pass": false,
+   "reasons": [
+    "match global 0.55 < 0.56",
+    "IC95 bas 0.46 ≤ 0.5 (non significatif sur 80 parties)"
+   ]
+  },
+  {
+   "round": 43,
+   "src": "mutation",
+   "screen": 0.55,
+   "score": 0.438,
+   "ic95Low": 0.357,
+   "nTotal": 80,
+   "w": 17,
+   "d": 36,
+   "pass": false,
+   "reasons": [
+    "perd contre v2 : 0.30 < 0.5",
+    "match global 0.44 < 0.56",
+    "IC95 bas 0.36 ≤ 0.5 (non significatif sur 80 parties)"
+   ]
+  },
+  {
+   "round": 44,
+   "src": "mutation",
+   "screen": 0.5,
+   "score": 0.5,
+   "ic95Low": 0.431,
+   "nTotal": 80,
+   "w": 16,
+   "d": 48,
+   "pass": false,
+   "reasons": [
+    "match global 0.50 < 0.56",
+    "IC95 bas 0.43 ≤ 0.5 (non significatif sur 80 parties)"
+   ]
+  }
+ ]
 }
